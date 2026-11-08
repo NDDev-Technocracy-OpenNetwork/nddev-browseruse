@@ -26,6 +26,28 @@ inside the tab groups that the owner grants them. Phones are described in [mobil
 - **Owner actions.** The owner hands a tab to an agent by moving it into the agent's group, and
   pins an element with the context menu.
 
+Every agent group contains an owner service tab. It shows the group's state, uptime, site-tab
+count, inactivity countdown and aggregate execution counts/durations. Off discards and hides
+the analytics. The service tab is excluded from agent browser targets. Its controls end the
+group either by closing its pages or by keeping them as ordinary ungrouped owner tabs.
+
+Explicit session close removes the service tab and the group's pages. `--keep-tabs` retains and
+ungroups the pages. An abandoned session expires after five minutes without work; a running
+execution or active recording suspends that lease. Merely looking at analytics does not renew it.
+Losing the native host also ends its groups. Closing, moving or navigating the service tab ends
+its old group while preserving a tab the owner took back.
+
+Recovery uses a bounded local registry together with a unique service tab, including after
+browser group IDs change. Conflicting or duplicated markers preserve the browser area and refuse
+replacement until ownership is unambiguous. Groups left by older builds without a marker cannot
+be identified safely after extension reload/update or a whole-browser restart clears their old
+session-storage mapping; a title alone never authorizes deletion.
+
+Video recording holds a separate, bounded native reservation. Only a live encoder renews it;
+stopping the recording, losing its executor or missing renewals removes that protection.
+Renewals do not count as agent work or reset the idle countdown. The host also expires a person
+recording's capture at its configured maximum duration even if no more frames arrive.
+
 ## Browsers
 
 `install --browser` registers the host for one browser's user profile root:
@@ -44,7 +66,10 @@ tab-group and native-messaging APIs. Firefox has no implementation in this produ
 ## Build and validation
 
 On a build host, run `just setup`, then `just verify`. Setup builds the Rust
-project helper and installs pinned dependencies. Check is read-only and offline;
+project helper and installs pinned dependencies. It first reuses a matching Bun
+from the project or PATH; npm is only a native-runtime bootstrap when neither is
+available. Both JavaScript dependency graphs are installed and run with Bun.
+Check is read-only and offline;
 its prepared helper and dependencies can be copied to USA from the build host.
 Tests, builds and isolated browser acceptance run on build hosts only.
 
@@ -56,8 +81,24 @@ No owner profile or native-host registration is used for acceptance.
 
 `just verify-staged /absolute/new/native-packet` runs the checks, builds the release
 host, stages its executor/dependencies/extension and runs acceptance against those
-exact files. Native macOS/Windows CI uploads that tested directory. A new output
+exact files. Full dev macOS/Windows CI uploads that tested directory. A new output
 directory is required; an existing packet is never overwritten.
+
+The shared full Linux check leaves `dist/qualified-linux.zip`: its exact staged native
+packet, measured browser report, extension ZIPs, authentic captures and rendered store
+material. The archive contains hidden runtime files and retains executable modes.
+Other supported platforms still run native acceptance through `just verify`;
+the Linux CI result supplies the common store packet.
+Pull requests run `just check` and `just test` on each native target; the full
+dev run qualifies its staged browser/native packet once before promotion.
+
+After promotion to `main`, `release.yml` selects successful check, native and security
+runs from the same `dev` push commit. It assembles their packets without rebuilding the
+application, records sources, artifact identities, measured skips and hashes in
+`QUALIFICATION.json`, then verifies every uploaded asset by downloading it before
+publishing. Repeated publication reconciles the same tag and bytes; conflicting tags
+or published assets are refused. Failure leaves an issue with the failed run.
+This publication does not replace a running native host or submit a store listing.
 
 ## Install
 

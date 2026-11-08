@@ -2,7 +2,7 @@
 // Testing profile with the unpacked NDS extension, registers the built host
 // for that profile only and drives the agent CLI against a local fixture.
 // A separate Playwright pipe connection observes the browser independently.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -20,11 +20,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright-core";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { launchFixture } from "./launch.js";
 
 const windows = process.platform === "win32";
-const repository = resolve(import.meta.dir, "..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = required("NDS_TEST_CHROME");
 const binary = required("NDS_TEST_HOST");
 const extensionSource =
@@ -210,7 +212,7 @@ async function ownerSwitch(enable: boolean): Promise<void> {
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   const toggle = page.locator("#toggle");
   await page.waitForFunction(
-    () => !(document.getElementById("toggle") as HTMLButtonElement).disabled,
+    () => (document.getElementById("toggle") as HTMLButtonElement | null)?.disabled === false,
   );
   if ((await toggle.getAttribute("aria-checked")) !== String(enable)) await toggle.click();
   await page.waitForFunction(
@@ -512,7 +514,7 @@ beforeAll(async () => {
           .locator("body")
           .screenshot({ path: join(process.env.NDS_E2E_SHOTS, `consent-${language}.png`) });
     }
-    await consent.locator('[data-language="en"]').click();
+    await consent.locator("select[data-language]").selectOption("en");
     await consent.locator('[data-consent-profile="full"]').click();
     await consent.waitForFunction(() => document.body.dataset.consent === "false");
     await consent.close();
@@ -691,7 +693,27 @@ test("the connected extension reports enabled control", async () => {
   const status = await cli("status");
   expect(status.code).toBe(0);
   expect(status.body.enabled).toBe(true);
-  expect(String(status.body.browser)).toStartWith("Chrome/");
+  expect(String(status.body.browser).startsWith("Chrome/")).toBe(true);
+});
+
+test("an embedding client discovers capabilities without starting a browser session", async () => {
+  const before = (await cli("session", "list")).body;
+  const reply = await cli("capabilities");
+  expect(reply.code).toBe(0);
+  expect(reply.body).toMatchObject({
+    protocol: 2,
+    browser_ready: true,
+    owned_sessions: true,
+    cancellation: true,
+    drained_close: true,
+    group_control: true,
+    terminal_groups: true,
+    idle_timeout_ms: 300000,
+    max_sessions: 8,
+    max_tabs: 32,
+    max_execution_ms: 25000,
+  });
+  expect((await cli("session", "list")).body).toEqual(before);
 });
 
 test("the executor receives validated operator limits from its own host", async () => {
@@ -795,9 +817,9 @@ test("popups opened by an agent page join the agent session", async () => {
   expect(result.body.value).toBe(`${origin}/target ${origin}/linked`);
   expect(notices).toHaveLength(2);
   for (const notice of notices)
-    expect(notice).toStartWith(`[WARNING] New page opened from ${origin}/`);
+    expect(notice.startsWith(`[WARNING] New page opened from ${origin}/`)).toBe(true);
   const popup = tabs(result).find((tab) => tab.url === `${origin}/target`);
-  expect(popup?.document).toBeString();
+  expect(popup?.document).toBeTypeOf("string");
 });
 
 // A sign-in button opens its own popup window, which can hold no tab group; it joins the agent's
@@ -823,7 +845,7 @@ test("a popup window an agent page opens becomes an agent tab", async () => {
     return windowId;
   };
   const popupWindow = await windowOf("/target?window");
-  expect(popupWindow).toBeNumber();
+  expect(popupWindow).toBeTypeOf("number");
   expect(popupWindow).toBe(await windowOf("/"));
   expect((await run("acceptance", "await state.signin.close(); delete state.signin")).code).toBe(0);
 });
@@ -1033,7 +1055,7 @@ async function helpers(): Promise<void> {
   const notices = result.body.notices as string[];
   const seen = JSON.parse(String(result.body.value ?? "{}")) as Record<string, string | boolean>;
   expect(seen.loaded).toBe(true);
-  expect(seen.first).toStartWith(`URL: ${origin}/helpers\n\n`);
+  expect(String(seen.first).startsWith(`URL: ${origin}/helpers\n\n`)).toBe(true);
   expect(seen.again).toBe(`URL: ${origin}/helpers\n\nNo changes since last call`);
   // Interactive lines carry a Playwright locator; short refs name the same elements.
   expect(seen.found).toContain('button "Save" [id="save"]');
@@ -1185,8 +1207,12 @@ test("a strict mode violation lists every match so the agent can pick one", asyn
       `const page = await context.newPage();
        await page.setContent('<div role="dialog"><button>From</button><button>Send</button><button>Discard</button></div>');
        await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] button').length === 3, null, { timeout: 5000 });
-       try { await page.locator("[role=dialog] button").click({ timeout: 1000 }); return "clicked"; }
+       const choices = page.locator("[role=dialog] button");
+       if (await choices.count() !== 3) throw new Error("strict fixture did not expose three matches");
+       try { await choices.click({ timeout: 5000 }); return "clicked"; }
        finally { await page.close(); }`,
+      "--timeout",
+      "20000",
     );
     const text = String(result.body.output ?? "");
     expect(text).toContain("strict mode violation");
@@ -1547,7 +1573,9 @@ test("the recorder turns a person's actions in an agent tab into events and fram
       `const page = await context.newPage(); await page.goto("${origin}/record"); return JSON.stringify(await recorder.start())`,
     );
     expect(started.body).toMatchObject({ failure: null });
-    expect(JSON.parse(String(started.body.value)).path).toStartWith(area("recorder"));
+    expect(String(JSON.parse(String(started.body.value)).path).startsWith(area("recorder"))).toBe(
+      true,
+    );
     // The CLI's recorder commands are the helper's calls.
     const status = await plain("-s", "recorder", "recorder", "status");
     expect(status.code).toBe(0);
@@ -1569,8 +1597,10 @@ test("the recorder turns a person's actions in an agent tab into events and fram
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     const actions = events.filter((event) => event.type === "person-action");
+    // Classification has a bounded deadline. A slow browser may conservatively redact a
+    // normal field too; an unconfirmed field must never be assumed safe to retain.
     expect(actions.map((event) => [event.action, event.value ?? event.key ?? null])).toEqual([
-      ["fill", "Ada"],
+      ["fill", expect.stringMatching(/^(?:Ada|\[redacted\])$/)],
       ["fill", "[redacted]"],
       ["click", null],
       ["press", "Tab"],
@@ -1608,6 +1638,51 @@ test("the recorder turns a person's actions in an agent tab into events and fram
   }
 });
 
+test("the recorder redacts a fill whose field disappeared before classification", async () => {
+  const project = "recorder-unknown";
+  await opened(project);
+  try {
+    expect(
+      (
+        await run(
+          project,
+          `const page = await context.newPage(); await page.goto("${origin}/record?uncertain"); await recorder.start(); return "recording"`,
+        )
+      ).body.value,
+    ).toBe("recording");
+    const page = await observed("/record?uncertain");
+    if (!page) throw new Error("recording fixture missing");
+    await page.evaluate(() => {
+      document.getElementById("name")?.addEventListener("input", (event) => {
+        (event.currentTarget as Element).remove();
+      });
+    });
+    await page.fill("#name", "unconfirmed-value");
+    await page.waitForFunction(() => !document.getElementById("name"));
+    let lines = "";
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      lines = (await plain("-s", project, "recorder", "events", "--type", "person-action")).stdout;
+      if (lines.includes('"action":"fill"')) break;
+      await Bun.sleep(100);
+    }
+    expect(lines).not.toContain("unconfirmed-value");
+    const actions = lines
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ action: "fill", value: "[redacted]" });
+    expect(actions[0]?.aria).toBeUndefined();
+    expect((await run(project, "await recorder.stop(); return 'stopped'")).body.value).toBe(
+      "stopped",
+    );
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
+  }
+});
+
 // The owner starts and stops the recorder from the extension's popup, for the agent group of
 // their tab; the agent then reads the steps.
 test("the owner records their actions for the agent from the popup", async () => {
@@ -1634,7 +1709,9 @@ test("the owner records their actions for the agent from the popup", async () =>
     await Bun.sleep(1000);
     await popup.locator("#record").click();
     await popup.waitForFunction(() => document.body.dataset.recording === "false");
-    expect(await popup.locator("#recording").textContent()).toStartWith("Recorded 2 actions");
+    expect(
+      (await popup.locator("#recording").textContent())?.startsWith("Recorded 2 actions"),
+    ).toBe(true);
     // Another tab of the owner is not an agent tab: the button says so.
     const own = await popup.evaluate(async () => {
       const tabs = (globalThis as unknown as { chrome: ChromeTabs }).chrome.tabs;
@@ -2637,12 +2714,8 @@ test("a private site keeps its content out of the journal, and the popup shows t
         await chrome.windows.update(window.id, { left: 0, top: 0, width: 800, height: 800 });
     });
     for (const language of ["ru", "en", "kk", "ar", "zh-CN"]) {
-      await popup.evaluate((value) => {
-        const api = globalThis as unknown as {
-          chrome: { storage: { local: { set(items: object): Promise<void> } } };
-        };
-        return api.chrome.storage.local.set({ popupLanguage: value });
-      }, language);
+      await popup.locator("select[data-language]").selectOption(language);
+      await popup.waitForFunction((value) => document.documentElement.lang === value, language);
       await popup.reload();
       await popup.waitForFunction(() => Number(document.body.dataset.recent) > 0);
       await popup.evaluate(() => document.fonts.ready);
@@ -2783,7 +2856,7 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
     ]);
     const unreachable = await plain("--device", "broken", "-s", "device", "-e", "1");
     expect(unreachable.code).toBe(2);
-    expect(unreachable.stderr).toStartWith("Error (device_unreachable)");
+    expect(unreachable.stderr.startsWith("Error (device_unreachable)")).toBe(true);
     expect((await cli("--device", "self", "session", "new", "device")).code).toBe(0);
     const ran = await plain(
       "--device",
@@ -2963,7 +3036,7 @@ test("agents read plain text, and a stuck action fails with its reason before th
       await Bun.sleep(100);
       told = await plain("-s", "plain", "-e", "1");
     }
-    expect(told.stdout).toStartWith("[WARNING] Page closed");
+    expect(told.stdout.startsWith("[WARNING] Page closed")).toBe(true);
     expect(told.stdout).toContain("for state.page");
     // A deadline beyond the bound is refused here with the usage that names the bound.
     const long = await plain("-s", "plain", "-e", "1", "--timeout", "30000");
@@ -2971,7 +3044,7 @@ test("agents read plain text, and a stuck action fails with its reason before th
     expect(long.stderr).toContain("--timeout <ms, at most 25000>");
     const refused = await plain("-s", "nowhere", "-e", "1");
     expect(refused.code).toBe(2);
-    expect(refused.stderr).toStartWith("Error (session_not_found)");
+    expect(refused.stderr.startsWith("Error (session_not_found)")).toBe(true);
     expect((await cli("session", "close", "plain")).code).toBe(0);
   } finally {
     // A failure above must not leave this session's executor and tab to the tests after it.
@@ -3120,8 +3193,7 @@ test.skipIf(windows)(
   60000,
 );
 
-// An execution that times out while its page waits on a long CDP call leaves that call to Chrome.
-// Once the extension's deadline for the call passed, the session still closes and opens again.
+// Closing ends browser authority even while Chrome is still answering an abandoned command.
 test("a session whose execution timed out during a long wait closes and opens again", async () => {
   await opened("waiting");
   try {
@@ -3132,8 +3204,6 @@ test("a session whose execution timed out during a long wait closes and opens ag
       "3000",
     );
     expect(waited.body.failure).toBe("aborted");
-    // The extension answers or drops the abandoned call within its 30 s reply deadline.
-    await Bun.sleep(32_000);
     expect((await cli("session", "close", "waiting", "--close-tabs")).code).toBe(0);
     expect((await cli("session", "new", "waiting")).code).toBe(0);
     expect((await cli("session", "close", "waiting", "--close-tabs")).code).toBe(0);
@@ -3143,6 +3213,83 @@ test("a session whose execution timed out during a long wait closes and opens ag
   }
 }, 60_000);
 
+test("the group control tab shows local analytics and hands retained pages back to the owner", async () => {
+  await opened("dashboard");
+  try {
+    const ran = await run(
+      "dashboard",
+      `const page = await context.newPage(); await page.goto("${origin}/?dashboard"); return context.pages().map(page => page.url())`,
+    );
+    expect(ran.body.value).not.toContain("group.html");
+    const control = observer
+      .pages()
+      .find((page) => page.url().startsWith(`chrome-extension://${extensionId}/group.html#`));
+    // Other active groups also have control tabs: select this one by its authoritative projection.
+    let dashboard: Page | undefined;
+    for (const page of observer.pages().filter((page) => page.url().includes("/group.html#"))) {
+      await page.waitForSelector("#workspace-title");
+      if ((await page.locator("#workspace-title").textContent()) === "dashboard") dashboard = page;
+    }
+    expect(control).toBeDefined();
+    if (!dashboard) throw new Error("group control page missing");
+    await dashboard.waitForFunction(
+      () => Number(document.getElementById("operations")?.textContent) >= 1,
+    );
+    expect(await dashboard.locator("#tabs").textContent()).toBe("1");
+    for (const language of ["en", "ru", "kk", "ar", "zh-CN"]) {
+      await dashboard.locator(`[data-language="${language}"]`).click();
+      await dashboard.waitForFunction((value) => document.documentElement.lang === value, language);
+      expect(await dashboard.evaluate(() => document.documentElement.dir)).toBe(
+        language === "ar" ? "rtl" : "ltr",
+      );
+      for (const colorScheme of ["light", "dark"] as const) {
+        for (const contrast of ["no-preference", "more"] as const) {
+          await dashboard.emulateMedia({ colorScheme, contrast });
+          const theme = `${colorScheme}${contrast === "more" ? "-contrast" : ""}`;
+          await dashboard.waitForFunction(
+            (value) => document.documentElement.dataset.theme === value,
+            theme,
+          );
+          for (const width of [360, 1280]) {
+            await dashboard.setViewportSize({ width, height: 1000 });
+            await dashboard.evaluate(() => document.fonts.ready);
+            expect(
+              await dashboard.evaluate(
+                () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+              ),
+              `${language} ${theme} ${width}px group layout`,
+            ).toBe(true);
+            if (process.env.NDS_E2E_SHOTS)
+              await dashboard.screenshot({
+                path: join(process.env.NDS_E2E_SHOTS, `group-${language}-${theme}-${width}.png`),
+                fullPage: true,
+              });
+          }
+        }
+      }
+    }
+    await dashboard.emulateMedia({ colorScheme: "light", contrast: "no-preference" });
+    await observation("off");
+    await dashboard.waitForFunction(() => document.getElementById("metrics")?.hidden === true);
+    await observation("full");
+    await dashboard.waitForFunction(
+      () => document.getElementById("operations")?.textContent === "0",
+    );
+    const retained = await observed("/?dashboard");
+    expect(retained).toBeDefined();
+    await dashboard.locator("#keep").click();
+    for (let attempt = 0; attempt < 100 && !dashboard.isClosed(); attempt++) await Bun.sleep(50);
+    expect(dashboard.isClosed()).toBe(true);
+    expect(retained?.isClosed()).toBe(false);
+    expect((await cli("session", "list")).body).not.toContainEqual(
+      expect.objectContaining({ project: "dashboard" }),
+    );
+    await retained?.close();
+  } finally {
+    await cli("session", "close", "dashboard", "--close-tabs");
+  }
+});
+
 test("the owner's switch revokes sessions until control is enabled again", async () => {
   await ownerSwitch(false);
   expect((await cli("status")).body.enabled).toBe(false);
@@ -3151,18 +3298,18 @@ test("the owner's switch revokes sessions until control is enabled again", async
   await ownerSwitch(true);
   const reopened = await opened("acceptance");
   expect(reopened.body).toMatchObject({ project: "acceptance" });
-  expect(Number(reopened.body.tabs)).toBeGreaterThan(0);
+  expect(Number(reopened.body.tabs)).toBe(0);
   const result = await run("acceptance", "context.pages().map((page) => page.url()).sort()");
-  expect(result.body.value).toContain(`${origin}/`);
+  expect(result.body.value).toBe("[]");
 });
 
-test("a lost host is replaced and the agent group is reclaimed without owner tabs", async () => {
+test("a lost host ends its group and its replacement starts without old browser authority", async () => {
   const owner = await observed("/owner");
   expect(owner).toBeDefined();
   const leftover = join(area("acceptance"), "before-loss.png");
   const written = await run(
     "acceptance",
-    `await context.pages()[0].screenshot({ path: artifacts + "/before-loss.png" }); return "written"`,
+    `const page = await context.newPage(); await page.goto("${origin}/"); await page.screenshot({ path: artifacts + "/before-loss.png" }); return "written"`,
     "--timeout",
     "20000",
   );
@@ -3171,7 +3318,7 @@ test("a lost host is replaced and the agent group is reclaimed without owner tab
   // Only the host runs from the installed prefix; cmd starts a Windows host by its wrapper.
   const hostCommand = windows ? hostBinary : `${hostBinary} chrome-extension://`;
   const [lost, ...others] = processes(hostCommand);
-  expect(lost).toBeNumber();
+  expect(lost).toBeTypeOf("number");
   expect(others).toEqual([]);
   process.kill(lost as number, "SIGKILL");
   // The extension sees its port close, releases the agent tabs and starts a new host.
@@ -3189,14 +3336,12 @@ test("a lost host is replaced and the agent group is reclaimed without owner tab
   expect(processes(cdpEndpoint)).toEqual([]);
   expect(existsSync(leftover)).toBe(false);
   const reopened = await opened("acceptance");
-  expect(Number(reopened.body.tabs)).toBeGreaterThan(0);
+  expect(Number(reopened.body.tabs)).toBe(0);
   const reclaimed = await run(
     "acceptance",
-    "[state.value === undefined, ...context.pages().map((page) => page.url())].join(' ')",
+    "[state.value === undefined, context.pages().length].join(' ')",
   );
-  expect(reclaimed.body.value).toStartWith("true ");
-  expect(reclaimed.body.value).toContain(`${origin}/`);
-  expect(reclaimed.body.value).not.toContain("/owner");
+  expect(reclaimed.body.value).toBe("true 0");
   expect(owner?.url()).toBe(`${origin}/owner`);
 });
 
@@ -3210,12 +3355,126 @@ test("closing a session cleans only its own area", async () => {
   expect((await run("acceptance", "1")).body.error).toBe("session_not_found");
 });
 
+test("host loss automatically removes an abandoned agent group", async () => {
+  const owner = await observer.newPage();
+  await owner.goto(`${origin}/owner`);
+  const inspector = await observer.newPage();
+  await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
+  try {
+    await opened("lost-cleanup");
+    expect(
+      (
+        await run(
+          "lost-cleanup",
+          `const page = await context.newPage(); await page.goto("${origin}/?lost-cleanup"); return await page.title()`,
+        )
+      ).body.value,
+    ).toBe("Fixture");
+    const abandoned = await observed("/?lost-cleanup");
+    expect(abandoned).toBeDefined();
+    const group = await inspector.evaluate(async (url) => {
+      const api = globalThis as unknown as {
+        chrome: { tabs: { query(info: object): Promise<{ groupId: number }[]> } };
+      };
+      return (await api.chrome.tabs.query({ url }))[0]?.groupId;
+    }, `${origin}/?lost-cleanup`);
+    expect(group).toBeTypeOf("number");
+    const hostCommand = windows ? hostBinary : `${hostBinary} chrome-extension://`;
+    const [lost, ...others] = processes(hostCommand);
+    expect(others).toEqual([]);
+    expect(lost).toBeTypeOf("number");
+    process.kill(lost as number, "SIGKILL");
+    let ready = false;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      await Bun.sleep(100);
+      if ((await cli("status")).body.enabled === true) {
+        ready = true;
+        break;
+      }
+    }
+    expect(ready).toBe(true);
+    expect(abandoned?.isClosed()).toBe(true);
+    expect(
+      await inspector.evaluate(async (id) => {
+        const api = globalThis as unknown as {
+          chrome: { tabGroups: { get(group: number): Promise<unknown> } };
+        };
+        return api.chrome.tabGroups.get(id as number).then(
+          () => true,
+          () => false,
+        );
+      }, group),
+    ).toBe(false);
+    expect(owner.isClosed()).toBe(false);
+    expect(owner.url()).toBe(`${origin}/owner`);
+    expect(processes(cdpEndpoint)).toHaveLength(0);
+    expect((await opened("lost-cleanup")).body.tabs).toBe(0);
+    expect((await cli("session", "close", "lost-cleanup")).code).toBe(0);
+  } finally {
+    await inspector.close();
+    await owner.close();
+  }
+});
+
 // The extension reloads itself when its installed files are newer, which ends
 // this host. Chrome for Testing disables command-line extensions on reload, so
 // the reloaded build itself is verified in a Load-unpacked browser.
 // A store install on a device without the host: the popup says the host is missing and links to
 // its setup, and the footer links to the privacy policy. On Windows the registry registration of
 // this run reaches every Chrome for Testing profile, so a fresh profile still finds the host.
+test.skipIf(Bun.which("ffmpeg") === null)(
+  "a real video recording survives the complete idle lease and then closes cleanly",
+  async () => {
+    const project = "video-idle";
+    await opened("plain-idle");
+    expect(
+      (
+        await run(
+          "plain-idle",
+          `const page = await context.newPage(); await page.goto("${origin}/?plain-idle"); return "idle"`,
+        )
+      ).body.value,
+    ).toBe("idle");
+    const plain = await observed("/?plain-idle");
+    await opened(project);
+    try {
+      const started = await run(
+        project,
+        `state.page = await context.newPage(); await state.page.goto("${origin}/?video-idle"); state.video = await recording.start({page: state.page, outputPath: artifacts + "/idle.mp4", frameRate: 1, maxSize: 160, maxDurationMs: 0}); return "recording"`,
+        "--timeout",
+        "25000",
+      );
+      expect(started.body.value).toBe("recording");
+      const idle = Number((await cli("capabilities")).body.idle_timeout_ms);
+      expect(idle).toBe(300000);
+      const deadline = Date.now() + idle + 10000;
+      // These are no agent operations: the execution lease must remain untouched throughout.
+      while (Date.now() < deadline) await Bun.sleep(Math.min(1000, deadline - Date.now()));
+      expect(plain?.isClosed()).toBe(true);
+      expect((await cli("session", "list")).body).not.toContainEqual(
+        expect.objectContaining({ project: "plain-idle" }),
+      );
+      expect((await cli("session", "list")).body).toContainEqual({
+        project,
+        tabs: 1,
+        executor: true,
+      });
+      expect(
+        (await run(project, 'await state.video.stop(); return "stopped"', "--timeout", "25000"))
+          .body.value,
+      ).toBe("stopped");
+      const page = await observed("/?video-idle");
+      expect(page?.isClosed()).toBe(false);
+      expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
+      expect(page?.isClosed()).toBe(true);
+    } finally {
+      await cli("session", "close", project, "--close-tabs");
+      await cli("session", "close", "plain-idle", "--close-tabs");
+    }
+  },
+  420000,
+);
+
 test.skipIf(windows)("without the host the popup links to its setup", async () => {
   const fresh = await launchFixture(mkdtempSync(join(root, "no-host-")), {
     executablePath: chromeExecutable,
@@ -3237,12 +3496,14 @@ test.skipIf(windows)("without the host the popup links to its setup", async () =
         throw new Error(`${error.message}; the popup shows ${JSON.stringify(shown)}`);
       });
     expect(await popup.evaluate(() => document.body.dataset.link)).toBe("down");
-    expect(await popup.locator("#setup a").getAttribute("href")).toEndWith(
-      "/docs/desktop.md#install",
-    );
     expect(
-      await popup.locator('footer a[data-i18n="privacyPolicy"]').getAttribute("href"),
-    ).toEndWith("/docs/privacy.md");
+      (await popup.locator("#setup a").getAttribute("href"))?.endsWith("/docs/desktop.md#install"),
+    ).toBe(true);
+    expect(
+      (await popup.locator('footer a[data-i18n="privacyPolicy"]').getAttribute("href"))?.endsWith(
+        "/docs/privacy.md",
+      ),
+    ).toBe(true);
   } finally {
     await fresh.close();
   }

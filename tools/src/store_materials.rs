@@ -25,6 +25,14 @@ fn hash(path: &Path) -> Result<String> {
         .collect())
 }
 
+fn capture_name(kind: &str, locale: &str) -> String {
+    if kind == "group" {
+        format!("group-{locale}-light-1280.png")
+    } else {
+        format!("{kind}-{locale}.png")
+    }
+}
+
 pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
     if !captures.is_absolute()
         || !output.is_absolute()
@@ -47,8 +55,8 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
         {
             return Err(format!("invalid listing fields for {locale}").into());
         }
-        for kind in ["popup", "consent"] {
-            let path = captures.join(format!("{kind}-{locale}.png"));
+        for kind in ["popup", "consent", "group"] {
+            let path = captures.join(capture_name(kind, locale));
             let metadata = fs::symlink_metadata(&path)?;
             if !metadata.is_file() || metadata.len() > 4_194_304 {
                 return Err("a bounded regular PNG capture is required".into());
@@ -104,7 +112,8 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
         fs::copy(name, source.join(name))?;
     }
     let css = "@import url('design-system/tokens.css');@import url('design-system/reference-fonts.css');*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}body{background:var(--surface-base);color:var(--text-primary);font-family:var(--font-sans)}html[lang=ar] body{font-family:var(--font-sans-ar)}html[lang=zh-CN] body{font-family:var(--font-sans-zh)}main{height:100%;padding:64px;display:flex;align-items:center;gap:64px}.copy{flex:1;min-width:0}.brand{display:flex;align-items:center;gap:16px;font-size:27px;font-weight:500;direction:ltr}.mark{background:#000;border-radius:22%;padding:12px;width:64px;height:64px}h1{font-size:56px;line-height:1.08;font-weight:500;letter-spacing:-1.2px;margin:48px 0 24px}p{font-size:24px;line-height:1.4;color:var(--text-secondary);margin:0 0 30px}.host{display:inline-block;border-block-start:5px solid var(--accent-brand);padding-block-start:15px;font-size:19px;color:var(--text-primary)}.capture{width:448px;height:auto;max-height:640px;object-fit:contain;flex:none;border:1px solid var(--border-subtle);border-radius:16px;background:var(--surface-raised)}.promo main{padding:22px;gap:16px}.promo .brand{font-size:21px}.promo .mark{width:40px;height:40px;padding:8px}.promo h1{font-size:31px;margin:24px 0 14px}.promo p{font-size:16px}.promo .host{font-size:14px}.marquee h1{font-size:58px;margin:32px 0}.logo main{padding:15%;display:block;background:#000}.logo img{width:100%;height:100%;object-fit:contain}";
-    fs::write(source.join("artwork.css"), css)?;
+    let dashboard_css = ".dashboard main{padding:32px;display:block}.dashboard .copy{display:flex;align-items:center;justify-content:space-between;gap:24px}.dashboard .brand{font-size:21px}.dashboard .mark{width:40px;height:40px;padding:8px}.dashboard h1{font-size:30px;line-height:1.2;letter-spacing:normal;margin:0;max-width:540px}.dashboard p{display:none}.dashboard .host{font-size:14px;max-width:240px}.dashboard .capture{display:block;width:auto;height:640px;max-width:100%;max-height:640px;margin:16px auto 0}";
+    fs::write(source.join("artwork.css"), [css, dashboard_css].concat())?;
     let mut frames = Vec::new();
     let mut input_hashes = serde_json::Map::new();
     for locale in locales {
@@ -124,13 +133,16 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
         for (kind, title, detail) in [
             ("popup", "control", "detail"),
             ("consent", "observation", "consent"),
+            ("group", "groups", "cleanup"),
         ] {
             let file = format!("{kind}-{locale}.png");
-            fs::copy(captures.join(&file), source.join(&file))?;
-            input_hashes.insert(file.clone(), hash(&captures.join(&file))?.into());
+            let input = capture_name(kind, locale);
+            fs::copy(captures.join(&input), source.join(&file))?;
+            input_hashes.insert(input.clone(), hash(&captures.join(&input))?.into());
             let html = format!(
-                "<!doctype html><html lang=\"{locale}\" dir=\"{}\" data-theme=\"light\"><meta charset=\"utf-8\"><link rel=\"stylesheet\" href=\"artwork.css\"><main><section class=\"copy\"><div class=\"brand\"><img class=\"mark\" src=\"mark.svg\">nddev-browseruse</div><h1>{}</h1><p>{}</p><div class=\"host\">{}</div></section><img class=\"capture\" src=\"{file}\"></main></html>",
+                "<!doctype html><html lang=\"{locale}\" dir=\"{}\" data-theme=\"light\"><meta charset=\"utf-8\"><link rel=\"stylesheet\" href=\"artwork.css\"><body class=\"{}\"><main><section class=\"copy\"><div class=\"brand\"><img class=\"mark\" src=\"mark.svg\">nddev-browseruse</div><h1>{}</h1><p>{}</p><div class=\"host\">{}</div></section><img class=\"capture\" src=\"{file}\"></main></body></html>",
                 if locale == "ar" { "rtl" } else { "ltr" },
+                if kind == "group" { "dashboard" } else { "" },
                 escape(text(words, title)?),
                 escape(text(words, detail)?),
                 escape(text(words, "host")?)
@@ -191,7 +203,7 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
     fs::write(
         output.join("PROVENANCE.json"),
         serde_json::to_vec_pretty(
-            &json!({"source":commit,"version":product_version()?,"inputCaptures":input_hashes,"designSystem":serde_json::from_slice::<Value>(&fs::read("design-system.lock.json")?)?,"render":"isolated sandboxed Chromium; actual popup captures, no owner data","review":"recorded in the release receipt","uploaded":false}),
+            &json!({"source":commit,"version":product_version()?,"inputCaptures":input_hashes,"designSystem":serde_json::from_slice::<Value>(&fs::read("design-system.lock.json")?)?,"render":"isolated sandboxed Chromium; actual extension UI captures, no owner data","review":"recorded in the release receipt","uploaded":false}),
         )?,
     )?;
     fs::remove_file(output.join("INCOMPLETE.txt"))?;

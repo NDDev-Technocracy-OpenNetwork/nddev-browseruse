@@ -245,6 +245,32 @@
   "licensesPageDescription": {
     "message": "Original notices for the extension components. Native-host and executor notices are included in their installation packet."
   },
+  "groupTitle": { "message": "Agent workspace" },
+  "groupDescription": { "message": "One task, one group. This control tab stays outside the agent's browser targets." },
+  "groupStarting": { "message": "Starting" },
+  "groupReady": { "message": "Ready" },
+  "groupRunning": { "message": "Working" },
+  "groupRecording": { "message": "Recording" },
+  "groupClosing": { "message": "Finishing" },
+  "groupUnavailable": { "message": "Workspace ended" },
+  "groupLinkDown": { "message": "Waiting for the local host" },
+  "groupUptime": { "message": "Session time" },
+  "groupTabs": { "message": "Website tabs" },
+  "groupAnalytics": { "message": "Group activity" },
+  "groupOperations": { "message": "Operations" },
+  "groupFailures": { "message": "Failed operations" },
+  "groupTotalTime": { "message": "Time in operations" },
+  "groupLastTime": { "message": "Last operation" },
+  "groupIdle": { "message": "Automatic cleanup in {v1}" },
+  "groupBusyCleanup": { "message": "Automatic cleanup is paused during work and recording." },
+  "groupPrivacyOff": { "message": "Observation is Off. Aggregate history is cleared; only operational state and cleanup timing remain." },
+  "groupPrivacyMetadata": { "message": "Local counts and durations only. These metrics contain no page content and have no automatic central export." },
+  "groupControls": { "message": "Finish the task" },
+  "groupClose": { "message": "End task and close tabs" },
+  "groupKeep": { "message": "Keep website tabs and end task" },
+  "groupKeepHint": { "message": "Kept tabs become ordinary ungrouped tabs. Session files are removed on completion; export needed artifacts first." },
+  "groupStopHint": { "message": "Closing or moving this control tab ends its group. Website tabs you already moved out stay open." },
+  "groupRequestFailed": { "message": "The current state could not be confirmed. Check the workspace before repeating an action." },
   "sourceLink": {
     "message": "Source code"
   }

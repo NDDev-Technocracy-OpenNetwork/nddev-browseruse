@@ -1,9 +1,10 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
     "lib": ["ES2024", "DOM"],
-    "types": ["bun"],
+    "types": ["bun", "chrome"],
     "noEmit": true
   },
-  "include": ["packages/desktop/extension/test/*.ts", "packages/executor/test/*.ts"]
+  "include": ["packages/desktop/extension/test/*.ts", "packages/desktop/extension/test/*.tsx", "packages/executor/test/*.ts", "vitest*.config.ts"]
 }

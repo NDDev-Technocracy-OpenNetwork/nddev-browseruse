@@ -5,26 +5,30 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "check": "tsc -p tsconfig.extension.json --noEmit && tsc -p tsconfig.executor.json && tsc -p tsconfig.e2e.json && tsc -p tsconfig.unit.json && biome check packages e2e && oxlint --report-unused-disable-directives-severity error --type-aware --config .oxlintrc.json packages e2e && knip",
-    "test": "bun test packages/desktop/extension/test packages/executor/test",
-    "generate": "tsc -p tsconfig.extension.json",
-    "check:generated": "tsc -p tsconfig.extension.json && git diff --exit-code -- packages/desktop/extension/background.js packages/desktop/extension/popup.js packages/desktop/extension/restore.js",
-    "e2e": "bun test e2e --timeout 60000"
+    "check": "tsc -p tsconfig.extension.json --noEmit && tsc -p tsconfig.executor.json && tsc -p tsconfig.e2e.json && tsc -p tsconfig.unit.json && biome check packages e2e vitest.config.ts vitest.e2e.config.ts && oxlint --report-unused-disable-directives-severity error --type-aware --config .oxlintrc.json packages e2e vitest.config.ts vitest.e2e.config.ts && knip",
+    "test": "bun --bun node_modules/vitest/vitest.mjs run --config vitest.config.ts",
+    "e2e": "bun --bun node_modules/vitest/vitest.mjs run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@mdream/js": "2.0.3",
-    "playwright-core": "1.64.1",
-    "i18next": "26.7.1",
-    "i18next-icu": "2.6.1"
+    "playwright-core": "1.65.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
+    "@biomejs/biome": "2.6.5",
     "@types/bun": "1.4.4",
-    "@types/chrome": "0.3.6",
-    "@types/node": "26.6.5",
+    "@types/chrome": "0.3.7",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "oxlint": "1.91.0",
-    "oxlint-tsgolint": "7.0.2005",
-    "knip": "6.44.1"
+    "oxlint-tsgolint": "7.0.2006",
+    "knip": "6.44.1",
+    "i18next": "26.7.2",
+    "i18next-icu": "2.6.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "react-i18next": "17.1.13",
+    "vitest": "5.1.0"
   }
 }

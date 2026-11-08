@@ -21,7 +21,7 @@ export type Execution = {
   withdraw: Array<() => unknown>;
 };
 
-export const scope = new AsyncLocalStorage<Execution>();
+export const scope = new AsyncLocalStorage<Execution | undefined>();
 
 /** Names a helper independently of the browser calls it makes. */
 export async function withStep<T>(name: string, work: () => Promise<T>): Promise<T> {

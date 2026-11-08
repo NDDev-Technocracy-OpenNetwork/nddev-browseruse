@@ -15,6 +15,11 @@ impl Host {
             return;
         }
         state.observation = profile;
+        if profile == Observation::Off {
+            for session in state.sessions.values_mut() {
+                session.metrics = Default::default();
+            }
+        }
         // The closed telemetry schema names no profiles, so each has its own event.
         match profile {
             Observation::Full => {

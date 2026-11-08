@@ -1,9 +1,9 @@
-i18next 26.7.1
+react 19.3.1
 SPDX: MIT
 
-The MIT License (MIT)
+MIT License
 
-Copyright (c) 2011-present i18next
+Copyright (c) Meta Platforms, Inc. and affiliates.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

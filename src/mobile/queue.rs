@@ -7,7 +7,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch};
 pub(super) struct Terminal(pub watch::Sender<Option<Ended>>);
 
 impl Terminal {
-    pub fn fail(&self, reason: Ended) {
+    pub(super) fn fail(&self, reason: Ended) {
         self.0.send_if_modified(|value| {
             if value.is_some() {
                 return false;
@@ -16,7 +16,7 @@ impl Terminal {
             true
         });
     }
-    pub fn ended(&self) -> bool {
+    pub(super) fn ended(&self) -> bool {
         self.0.borrow().is_some()
     }
 }
@@ -33,7 +33,7 @@ pub(super) struct Outbox<T> {
 }
 
 impl<T> Outbox<T> {
-    pub fn new(
+    pub(super) fn new(
         messages: usize,
         bytes: u32,
         terminal: Terminal,
@@ -49,7 +49,7 @@ impl<T> Outbox<T> {
         )
     }
 
-    pub fn send(&self, value: T, bytes: usize) -> bool {
+    pub(super) fn send(&self, value: T, bytes: usize) -> bool {
         if self.terminal.ended() {
             return false;
         }

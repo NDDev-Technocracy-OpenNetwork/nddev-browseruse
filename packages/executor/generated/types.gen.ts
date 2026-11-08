@@ -60,6 +60,25 @@ export type Build = {
     version: string;
 };
 
+/**
+ * Discovery is a separate operation so an older client receives the unchanged Status shape.
+ */
+export type Capabilities = {
+    browser_ready: boolean;
+    cancellation: boolean;
+    drained_close: boolean;
+    group_control: boolean;
+    host: Build;
+    idle_timeout_ms: number;
+    max_execution_ms: number;
+    max_sessions: number;
+    max_tabs: number;
+    owned_sessions: boolean;
+    protocol: number;
+    recording_leases: boolean;
+    terminal_groups: boolean;
+};
+
 export type CaptureFailure = 'policy_changed' | 'document_changed' | 'private_page' | 'capacity' | 'invalid_request' | 'unavailable' | 'stopped' | 'frame_limit' | 'target_closed';
 
 export type CaptureReply = {
@@ -145,6 +164,7 @@ export type FrontendConfig = {
      */
     initialObservation: Observation;
     installUrl: string;
+    lifecycle: LifecycleSettings;
     /**
      * Minimum native host version that enforces observation revocation.
      */
@@ -176,7 +196,86 @@ export type FrontendConfig = {
     setupTimeoutMs: number;
 };
 
+export type GroupDashboard = {
+    connected: boolean;
+    error?: GroupFailure | null;
+    identity?: GroupIdentity | null;
+    observation: Observation;
+    status?: GroupStatus | null;
+};
+
+export type GroupFailure = 'unavailable' | 'request_failed' | 'ownership_conflict';
+
+/**
+ * Browser-local recovery identity, never a native session capability or a grant to execute code.
+ */
+export type GroupIdentity = {
+    createdAtMs: number;
+    id: string;
+    project: string;
+};
+
+/**
+ * Bounded aggregate counters. No operation arguments or page-content fields are retained here.
+ */
+export type GroupMetrics = {
+    completed: number;
+    failed: number;
+    lastMs?: number | null;
+    totalMs: number;
+};
+
+export type GroupPhase = 'starting' | 'ready' | 'running' | 'recording' | 'closing';
+
+/**
+ * Owner-only operational projection. It contains no session capability or execution code.
+ */
+export type GroupStatus = {
+    idleMs: number;
+    idleTimeoutMs: number;
+    metrics?: GroupMetrics | null;
+    phase: GroupPhase;
+    project: string;
+    siteTabs: number;
+    uptimeMs: number;
+};
+
+/**
+ * Per-host and per-browser cleanup limits. New host/worker instances read them once.
+ */
+export type LifecycleSettings = {
+    /**
+     * Durable group records in one browser profile, including groups awaiting cleanup.
+     */
+    groupsLimit: number;
+    /**
+     * Inactivity deadline per session. Executions and explicit recording suspend expiry.
+     */
+    idleTimeoutMs: number;
+    /**
+     * Recovery grace for a durable control tab whose previous host no longer owns it.
+     */
+    orphanGraceMs: number;
+    /**
+     * An active video renews its reservation at this interval, outside execution requests.
+     */
+    recordingHeartbeatMs: number;
+    /**
+     * A lost recording owner cannot keep its session alive beyond this reservation.
+     */
+    recordingLeaseMs: number;
+    /**
+     * Maximum interval between the host's cleanup passes.
+     */
+    sweepIntervalMs: number;
+};
+
 export type Observation = 'full' | 'standard' | 'off';
+
+export type OwnerRecent = {
+    error?: string | null;
+    lines?: Array<string> | null;
+};
 
 export type OwnerRecording = {
     error?: string | null;
@@ -205,4 +304,26 @@ export type RecorderSettings = {
     queuedFrames: number;
     secretCache: number;
     secretTimeoutMs: number;
+};
+
+export type VideoLeaseFailure = 'invalid_request' | 'target_closed' | 'capacity' | 'expired' | 'unavailable';
+
+/**
+ * Session-local operational lease; its opaque ID is never a UI or telemetry field.
+ */
+export type VideoLeaseReply = {
+    error?: VideoLeaseFailure | null;
+    heartbeatMs?: number | null;
+    kept: boolean;
+    lease?: string | null;
+};
+
+export type VideoLeaseRequest = {
+    action: 'begin';
+} | {
+    action: 'renew';
+    lease: string;
+} | {
+    action: 'stop';
+    lease: string;
 };

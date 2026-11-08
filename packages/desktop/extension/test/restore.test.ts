@@ -1,5 +1,5 @@
 // The rules that restore an agent tab's debugger session after Chrome detached it.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import {
   MAX_REATTACHES,
   MAX_SETUP_BYTES,

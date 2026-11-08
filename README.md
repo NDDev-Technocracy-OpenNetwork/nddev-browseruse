@@ -3,6 +3,8 @@
 Local browser automation for agents you run. A Rust host and CLI connect a thin
 Bun executor to a Chromium extension through native messaging and local sockets.
 Each task works inside its own tab group in your existing browser.
+Its owner control tab shows session state and local analytics, and lets you close the group or
+keep its pages. Abandoned idle sessions are reclaimed automatically.
 
 The standalone product preserves the public history of
 [NDS browser-use](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use).
@@ -30,7 +32,11 @@ send what they read to their own model provider. Review the
 [privacy policy](docs/privacy.md) and [observation model](docs/observability.md).
 
 The standalone library initializes no telemetry subscriber and depends on no
-NDS runtime. NDS can integrate through the [public port](docs/integration.md).
+NDS runtime. Embedding systems use the independent client SDK and
+[public port](docs/integration.md); [architecture](docs/architecture.md) describes the boundaries.
+It follows the native-process application boundary for NDS's core-and-apps architecture:
+the versioned local RPC is the module window, while NDS retains its own module host,
+identity, storage and synchronization. The standalone executable composes the same engine.
 Android support connects through the owner's ADB server; it does not install a
 mobile browser extension. Credential custody and cloud relay are not implemented.
 

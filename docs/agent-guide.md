@@ -19,7 +19,8 @@ nddev-browseruse session close docs         # also closes the session's tabs
   only these tabs, never the owner's other tabs.
 - **Close the session when the task is done.** That closes its tabs too.
   - Pass `--keep-tabs` only when the owner should look at a result.
-  - A session that runs nothing for 30 minutes closes by itself, with its tabs.
+  - After five minutes without work, a session closes itself with its tabs. A running execution
+    or active recording suspends this fallback; polling the service tab does not extend it.
 - **Quoting.** Wrap `-e` code in single quotes, so the shell leaves `$`, backticks and backslashes
   alone, and use double quotes for JavaScript strings. For multi-line code, use a file with `-f`
   or a quoted heredoc:

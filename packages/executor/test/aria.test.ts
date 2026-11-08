@@ -1,7 +1,7 @@
 // The snapshot tree rules: scope pruning, interactive filtering, locators and redundant text.
 //
 // Adapted from MIT-licensed code by Tommy D. Rossi (NOTICE.md).
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import {
   buildRawSnapshotTree,
   buildSnapshotLines,
@@ -272,14 +272,12 @@ describe("aria-snapshot tree filters", () => {
 
     expect(filtered).toMatchInlineSnapshot(`
       {
-        "names":   
-      Set {
+        "names": Set {
           "Home",
           "Email",
           "Save",
           "Ignored Action",
-        }
-      ,
+        },
         "nodes": [
           {
             "backendNodeId": undefined,
@@ -423,12 +421,10 @@ describe("aria-snapshot tree filters", () => {
     `);
     expect(result).toMatchInlineSnapshot(`
       {
-        "snapshot": 
-      "- form "Account":
+        "snapshot": "- form "Account":
         - textbox "Email" [data-testid="email-input"]
         - button "Save" [id="save-primary"]
-        - button "Save" [id="save-secondary"]"
-      ,
+        - button "Save" [id="save-secondary"]",
         "tree": [
           {
             "backendNodeId": undefined,
@@ -514,12 +510,10 @@ describe("aria-snapshot tree filters", () => {
 
     expect(filtered).toMatchInlineSnapshot(`
       {
-        "names":   
-      Set {
+        "names": Set {
           "Card",
           "Billing",
-        }
-      ,
+        },
         "nodes": [
           {
             "backendNodeId": undefined,
@@ -601,11 +595,9 @@ describe("aria-snapshot tree filters", () => {
 
     expect(filtered).toMatchInlineSnapshot(`
       {
-        "names":   
-      Set {
+        "names": Set {
           "Save",
-        }
-      ,
+        },
         "nodes": [
           {
             "backendNodeId": undefined,

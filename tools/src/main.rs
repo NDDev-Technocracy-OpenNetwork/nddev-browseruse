@@ -12,11 +12,13 @@ use std::{
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
+mod architecture;
 mod configuration;
 mod design;
 mod legal;
 mod licenses;
 mod native_licenses;
+mod release;
 mod store;
 mod store_materials;
 
@@ -39,9 +41,11 @@ fn execute() -> Result {
     match command.as_str() {
         "setup" => setup(),
         "check" => {
+            architecture::check()?;
             design::check()?;
             configuration::check()?;
             legal::check()?;
+            release::check()?;
             check_version()?;
             run("cargo", &["fmt", "--all", "--", "--check"])?;
             run(tool("cargo-shear"), &[])?;
@@ -56,7 +60,16 @@ fn execute() -> Result {
             run("cargo", &["fmt", "--all"])?;
             run(
                 tool("bun"),
-                &["run", "biome", "check", "--write", "packages", "e2e"],
+                &[
+                    "run",
+                    "biome",
+                    "check",
+                    "--write",
+                    "packages",
+                    "e2e",
+                    "vitest.config.ts",
+                    "vitest.e2e.config.ts",
+                ],
             )
         }
         "test" => {
@@ -73,7 +86,8 @@ fn execute() -> Result {
                     "warnings",
                 ],
             )?;
-            run("cargo", &["test", "--locked", "--workspace"])?;
+            run("cargo", &["nextest", "run", "--locked", "--workspace"])?;
+            run("cargo", &["test", "--locked", "--workspace", "--doc"])?;
             run(tool("bun"), &["run", "test"])
         }
         "generate" => generate(),
@@ -107,16 +121,18 @@ fn execute() -> Result {
                 .ok_or("verify-staged requires an absolute new native directory")?;
             let output = Path::new(&output);
             stage(output, "release")?;
-            let mut browser = Command::new(tool("bun"));
-            browser.args(["run", "e2e"]);
-            browser.env(
-                "NDS_TEST_HOST",
-                output.join("bin").join(executable("nddev-browseruse")),
-            );
-            browser.env("NDS_TEST_EXTENSION", output.join("extension"));
-            browser.env("NDS_TEST_EXECUTOR", output.join("executor/executor.ts"));
-            browser_environment(&mut browser)?;
-            complete(browser)
+            release::accept(output, None).map(|_| ())
+        }
+        "verify-release" => release::prepare(),
+        "release-requirements" => release::write_requirements(),
+        "release-assemble" => {
+            let input = std::env::args()
+                .nth(2)
+                .ok_or("release-assemble requires input")?;
+            let output = std::env::args()
+                .nth(3)
+                .ok_or("release-assemble requires output")?;
+            release::assemble(Path::new(&input), Path::new(&output))
         }
         "build" => {
             generate()?;
@@ -140,12 +156,12 @@ fn execute() -> Result {
             let target = target_directory()?;
             let mut browser = Command::new(tool("bun"));
             if command == "phone-check" {
-                browser.args(["test", "e2e/phone.test.ts", "--timeout", "60000"]);
+                browser.args(["run", "e2e", "e2e/phone.test.ts"]);
             } else {
                 browser.args(["run", "e2e"]);
             }
             if let Some(pattern) = std::env::args().nth(2) {
-                browser.args(["--test-name-pattern", &pattern]);
+                browser.args(["--testNamePattern", &pattern]);
             }
             browser_environment(&mut browser)?;
             browser.env(
@@ -226,6 +242,7 @@ fn prepared_path(command: &mut Command) -> Result {
 }
 
 fn setup() -> Result {
+    let root = std::env::current_dir()?;
     fs::create_dir_all(".tools/bin")?;
     let package: Value = serde_json::from_slice(&fs::read("package.json")?)?;
     let version = package["packageManager"]
@@ -233,47 +250,19 @@ fn setup() -> Result {
         .and_then(|p| p.strip_prefix("bun@"))
         .ok_or("packageManager must pin Bun")?;
     if capture(tool("bun"), &["--version"]).ok().as_deref() != Some(version) {
-        let platform = match std::env::consts::OS {
-            "linux" => "linux",
-            "macos" => "darwin",
-            "windows" => "windows",
-            _ => return Err("unsupported Bun bootstrap platform".into()),
-        };
-        let architecture = match std::env::consts::ARCH {
-            "x86_64" => "x64",
-            "aarch64" => "aarch64",
-            _ => return Err("unsupported Bun bootstrap architecture".into()),
-        };
-        // npm installs the pinned native binary package without running package lifecycle scripts.
-        // It is only a bootstrap: all project TypeScript tooling runs with Bun.
-        let name = format!("@oven/bun-{platform}-{architecture}");
-        let specification = format!("{name}@{version}");
-        let mut npm = if cfg!(windows) {
-            let mut command = Command::new("cmd");
-            command.args(["/D", "/C", "npm"]);
-            command
+        if let Some(installed) = std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|directory| root.join(directory).join(executable("bun")))
+                .find(|candidate| {
+                    capture(candidate, &["--version"]).ok().as_deref() == Some(version)
+                })
+        }) {
+            install_bun(&installed)?;
         } else {
-            Command::new("npm")
-        };
-        npm.args([
-            "install",
-            "--prefix",
-            ".tools/bun",
-            "--ignore-scripts",
-            "--no-audit",
-            "--no-fund",
-            &specification,
-        ]);
-        complete(npm)?;
-        fs::copy(
-            Path::new(".tools/bun/node_modules")
-                .join(name)
-                .join("bin")
-                .join(executable("bun")),
-            tool("bun"),
-        )?;
+            bootstrap_bun(version)?;
+        }
         if capture(tool("bun"), &["--version"])? != version {
-            return Err("Bun bootstrap version mismatch".into());
+            return Err("Bun setup version mismatch".into());
         }
     }
     run(
@@ -284,13 +273,24 @@ fn setup() -> Result {
         serde_json::from_slice(&fs::read("tools/versions.json")?)?;
     for (name, value) in versions {
         let version = value.as_str().ok_or("invalid quality-tool version")?;
-        let expected = format!("{name} {version}");
+        let label = if name == "cargo-shear" {
+            "Version:"
+        } else {
+            &name
+        };
         if capture(tool(&name), &["--version"])
             .ok()
             .as_deref()
-            .is_some_and(|v| v.starts_with(&expected))
+            .is_some_and(|value| {
+                let mut fields = value.split_whitespace();
+                fields.next() == Some(label) && fields.next() == Some(version)
+            })
         {
             continue;
+        }
+        let installed = tool(&name);
+        if fs::symlink_metadata(&installed).is_ok() {
+            fs::remove_file(installed)?;
         }
         run(
             "cargo",
@@ -299,6 +299,7 @@ fn setup() -> Result {
                 "--locked",
                 "--root",
                 ".tools",
+                "--force",
                 "--version",
                 version,
                 &name,
@@ -318,9 +319,62 @@ fn setup() -> Result {
     run("cargo", &["fetch", "--locked"])
 }
 
+fn install_bun(source: &Path) -> Result {
+    let destination = tool("bun");
+    // Never follow an old project symlink and overwrite the owner's installed runtime.
+    if fs::symlink_metadata(&destination).is_ok() {
+        fs::remove_file(&destination)?;
+    }
+    fs::copy(source, destination)?;
+    Ok(())
+}
+
+fn bootstrap_bun(version: &str) -> Result {
+    let platform = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        "windows" => "windows",
+        _ => return Err("unsupported Bun bootstrap platform".into()),
+    };
+    let architecture = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "aarch64",
+        _ => return Err("unsupported Bun bootstrap architecture".into()),
+    };
+    // npm installs the pinned native binary package without running package lifecycle scripts.
+    // It is only a bootstrap: all project TypeScript tooling runs with Bun.
+    let name = format!("@oven/bun-{platform}-{architecture}");
+    let specification = format!("{name}@{version}");
+    let mut npm = if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.args(["/D", "/C", "npm"]);
+        command
+    } else {
+        Command::new("npm")
+    };
+    npm.args([
+        "install",
+        "--prefix",
+        ".tools/bun",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        &specification,
+    ]);
+    complete(npm)?;
+    install_bun(
+        Path::new(".tools/bun/node_modules")
+            .join(name)
+            .join("bin")
+            .join(executable("bun"))
+            .as_path(),
+    )?;
+    Ok(())
+}
+
 fn product_version() -> Result<String> {
     let cargo: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
-    Ok(cargo["package"]["version"]
+    Ok(cargo["workspace"]["package"]["version"]
         .as_str()
         .ok_or("product version is missing")?
         .into())
@@ -439,6 +493,7 @@ fn stage(output: &Path, profile: &str) -> Result {
         serde_json::to_vec_pretty(&serde_json::json!({
             "product": "nddev-browseruse", "version": compiled.version, "source": compiled.commit,
             "executorRuntime": runtime,
+            "platform": {"os":std::env::consts::OS,"arch":std::env::consts::ARCH},
             "profile": profile, "qualification": "recorded in the release receipt", "nativeHostRegistered": false
         }))?,
     )?;
@@ -467,26 +522,44 @@ fn generate() -> Result {
 }
 
 fn emit_browser(output: &str) -> Result {
+    if Path::new(output).is_dir() {
+        for entry in fs::read_dir(output)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if entry.file_type()?.is_file() && name.starts_with("chunk-") && name.ends_with(".js") {
+                fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    // Only bundled browser entry points ship. Remove outputs of the former per-module emitter.
+    for stale in ["groups.js", "ui.js", "restore.js", "generated/types.gen.js"] {
+        let path = Path::new(output).join(stale);
+        if path.is_file() {
+            fs::remove_file(path)?;
+        }
+    }
     let metadata = Path::new(".tools/bundle-metadata.json");
     run(
         tool("bun"),
-        &[
-            "run",
-            "tsc",
-            "-p",
-            "tsconfig.extension.json",
-            "--outDir",
-            output,
-        ],
+        &["run", "tsc", "-p", "tsconfig.extension.json", "--noEmit"],
     )?;
     run(
         tool("bun"),
         &[
             "build",
+            "packages/desktop/extension/src/background.ts",
             "packages/desktop/extension/src/popup.ts",
+            "packages/desktop/extension/src/group.ts",
+            "packages/desktop/extension/src/legal.ts",
             "--target",
             "browser",
             "--minify",
+            "--splitting",
+            "--chunk-naming",
+            "chunk-[hash].[ext]",
+            "--define",
+            "process.env.NODE_ENV=\"production\"",
             "--outdir",
             output,
             "--metafile=.tools/bundle-metadata.json",
@@ -514,7 +587,28 @@ fn check_generated() -> Result {
         }
         Ok(())
     }
-    compare(generated, Path::new("packages/desktop/extension"))
+    let checked = Path::new("packages/desktop/extension");
+    compare(generated, checked)?;
+    fn scripts(path: &Path) -> Result<Vec<std::ffi::OsString>> {
+        let mut names = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "js")
+            {
+                names.push(entry.file_name());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+    if scripts(generated)? != scripts(checked)? {
+        return Err("generated browser directory contains missing or obsolete scripts".into());
+    }
+    Ok(())
 }
 
 fn source_commit() -> Result<String> {

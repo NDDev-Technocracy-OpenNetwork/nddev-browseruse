@@ -35,6 +35,10 @@ nddev-browseruse session close docs
   Nonempty legacy NDS routing/runtime or phone ADB endpoint environment settings require explicit
   migration to installed configuration; never silently retry a refused action elsewhere.
 - Close the session when the task is done. That closes its tabs too.
+- Each group contains an owner service tab with its state, cleanup countdown and local execution
+  totals. It is never an agent target. Do not navigate, close, duplicate or move it as a work tab.
+  Closing it ends that group. Idle sessions expire after five minutes; executing code and active
+  recording are protected. Export needed artifacts before the session ends.
 - Workflow recording needs the owner's Full observation choice. Off, Standard and changes to
   private sites stop it; Full does not restart it. Images are not pixel-redacted. Export needed
   frames before closing the session; `outputDir` stays within the session's artifacts.

@@ -8,6 +8,7 @@
 mod capture;
 mod downloads;
 mod executor;
+mod lifecycle;
 mod observation;
 mod relay;
 
@@ -43,9 +44,6 @@ const PART_BYTES: usize = 500 * 1024;
 /// Chrome sends at most 64 MiB; large CDP results (screenshots) stay well below this.
 const FROM_EXTENSION_LIMIT: usize = 32 * 1_048_576;
 const EXTENSION_REPLY: Duration = Duration::from_secs(30);
-/// A CLI session that runs nothing for this long closes with its tabs, so the tabs of agents that
-/// forgot to close their session do not pile up in the owner's browser.
-const IDLE_CLOSE: Duration = Duration::from_secs(30 * 60);
 const CONTROL_CONNECTIONS: usize = 16;
 const CONTROL_IO: Duration = Duration::from_secs(5);
 const URL_LIMIT: usize = 2048;
@@ -57,6 +55,7 @@ const CDP_RELEASED: u8 = 2;
 
 /// Local installation paths; never operator credentials.
 pub struct Config {
+    pub lifecycle: nddev_browseruse_contract::LifecycleSettings,
     pub executor_settings: crate::configuration::ExecutorSettings,
     pub diagnostics: crate::diagnostics::Policy,
     pub runtime: PathBuf,
@@ -163,7 +162,7 @@ impl Binary {
 
 /// The one extension contract this host speaks: every cdp and close request names its group,
 /// and the worker admits it only for that group's current attachment of the tab.
-const CONTRACT: u64 = 2;
+const CONTRACT: u64 = crate::protocol::VERSION as u64;
 
 #[derive(Default)]
 struct State {
@@ -180,6 +179,8 @@ struct State {
     downloads: bool,
     /// The connected extension joins a message the host sends in parts (see [`parts`]).
     parts: bool,
+    /// A terminal release physically ends the exact browser group's resources before its ACK.
+    terminal_groups: bool,
     /// The owner's observation profile (see [`observation`]).
     observation: observation::Observation,
     /// The owner's private sites, of which the journal keeps no content (`observation::sites`).
@@ -189,6 +190,10 @@ struct State {
 }
 
 struct Session {
+    created: Instant,
+    metrics: nddev_browseruse_contract::GroupMetrics,
+    /// Browser-local control-page identity, distinct from the private native session capability.
+    owner_group: Option<String>,
     token: String,
     artifacts: PathBuf,
     client: Option<relay::Client>,
@@ -196,6 +201,8 @@ struct Session {
     owned: bool,
     opened: bool,
     closing: bool,
+    /// Sticky cleanup intent, retained across failed drain/release attempts.
+    close_tabs: bool,
     running: bool,
     /// When the session was reserved or last started or finished an execution.
     used: Instant,
@@ -211,6 +218,8 @@ struct Session {
     /// The recorder's current recording, as its journal records report it: its id and the
     /// owner's actions so far. The popup reads it without running anything in the session.
     recording: Option<(String, u64)>,
+    /// Active encoder reservations; only an acknowledged begin creates one, renew never does.
+    video_leases: HashMap<String, Instant>,
     capture: Option<Arc<Mutex<capture::Capture>>>,
 }
 
@@ -329,7 +338,7 @@ pub async fn run(origin: &str, config: Config) -> Result<(), HostError> {
     if !admitted(origin) {
         return Err(HostError::Origin);
     }
-    if !config.executor_settings.validate() {
+    if !config.executor_settings.validate() || !config.lifecycle.validate() {
         return Err(HostError::Io(IoError::InvalidConfiguration));
     }
     let installed = installed_manifest(origin);
@@ -848,6 +857,7 @@ impl Host {
                 state.contract = message["contract"].as_u64();
                 state.downloads = message["downloads"].as_bool() == Some(true);
                 state.parts = message["parts"].as_bool() == Some(true);
+                state.terminal_groups = message["terminalGroups"].as_bool() == Some(true);
                 let profile = if state.contract == Some(CONTRACT) {
                     observation::Observation::parse(&message["observation"])
                 } else {
@@ -913,6 +923,14 @@ impl Host {
                 let host = self.clone();
                 tokio::spawn(async move { host.record(&message).await });
             }
+            Some("group") => {
+                let host = self.clone();
+                tokio::spawn(async move { host.group_message(&message).await });
+            }
+            Some("group_closed") => self.group_closed(
+                message["group"].as_str().unwrap_or_default(),
+                message["identity"].as_str().unwrap_or_default(),
+            ),
             // The extension gave up adopting a new agent tab after its retries.
             Some("adoption") => {
                 let class = match message["failure"].as_str() {
@@ -1054,7 +1072,9 @@ impl Host {
 
     /// Replies that Chrome never answered fail visibly instead of waiting forever.
     async fn sweep(self: Arc<Self>) {
-        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        let mut interval = tokio::time::interval(Duration::from_millis(
+            self.config.lifecycle.sweep_interval_ms,
+        ));
         loop {
             interval.tick().await;
             self.expire_pending(Instant::now());
@@ -1065,27 +1085,37 @@ impl Host {
         }
     }
 
-    /// Closes, with their tabs, the opened CLI sessions that ran nothing for `IDLE_CLOSE`. Owned
-    /// sessions belong to the NDS component that composes them, which closes them itself.
+    /// Reclaims every abandoned generation, including managed callers that disappeared without
+    /// closing. Actual execution and explicit recording retain their current life.
     async fn close_idle(&self, now: Instant) {
-        let idle: Vec<(String, Arc<SessionLife>)> = self
-            .state()
-            .sessions
-            .iter()
-            .filter(|(_, session)| {
-                !session.owned
-                    && session.opened
-                    && !session.closing
-                    && !session.running
-                    && now.duration_since(session.used) >= IDLE_CLOSE
-            })
-            .map(|(project, session)| (project.clone(), session.life.clone()))
-            .collect();
-        for (project, life) in idle {
+        let idle: Vec<(String, Arc<SessionLife>)> = {
+            let mut state = self.state();
+            for session in state.sessions.values_mut() {
+                session.video_leases.retain(|_, deadline| *deadline > now);
+                capture::expire(session, now, self.config.executor_settings.recorder.max_ms);
+            }
+            state
+                .sessions
+                .iter()
+                .filter(|(_, session)| {
+                    (!session.closing || !session.life.stop.is_cancelled())
+                        && !session.running
+                        && session.video_leases.is_empty()
+                        && session.capture.is_none()
+                        && now.duration_since(session.used)
+                            >= Duration::from_millis(self.config.lifecycle.idle_timeout_ms)
+                })
+                .map(|(project, session)| (project.clone(), session.life.clone()))
+                .collect()
+        };
+        // The session ceiling bounds this fan-out. One unresponsive generation must not delay
+        // cleanup of every other abandoned group by a complete extension deadline.
+        futures_util::future::join_all(idle.into_iter().map(|(project, life)| async move {
             let closed = self.close_generation(&project, &life, true, true).await;
             let outcome = if closed.is_ok() { "stopped" } else { "error" };
             tracing::info!(event.name = "browser.session.idle", outcome);
-        }
+        }))
+        .await;
     }
 
     fn expire_pending(&self, now: Instant) {
@@ -1298,6 +1328,7 @@ impl Host {
         state.children.clear();
         for session in state.sessions.values_mut() {
             session.closing = true;
+            session.close_tabs = true;
             session.life.stop.cancel();
             capture::revoke(session);
             session.client = None;
@@ -1348,14 +1379,22 @@ impl Host {
             .filter(|(_, session)| session.closing)
             .map(|(project, session)| (project.clone(), session.life.clone()))
             .collect();
-        for (project, life) in sessions {
+        futures_util::future::join_all(sessions.into_iter().map(|(project, life)| async move {
             if life.stop.is_cancelled() {
                 // Re-enabling the extension cannot revive this canceled lifetime.
-                let _ = self.close_generation(&project, &life, false, true).await;
+                let close_tabs = self
+                    .state()
+                    .sessions
+                    .get(&project)
+                    .is_some_and(|session| session.close_tabs);
+                let _ = self
+                    .close_generation(&project, &life, close_tabs, true)
+                    .await;
             } else {
                 let _ = self.stop_interrupted(&project, &life).await;
             }
-        }
+        }))
+        .await;
     }
 
     async fn serve_control(self: Arc<Self>, listener: socket::Listener) {
@@ -1412,8 +1451,8 @@ impl Host {
                 timeout_ms,
                 expect,
             }) => Some((
-                session.project.clone(),
-                Some(session.generation.clone()),
+                session.project().to_owned(),
+                Some(session.generation().to_owned()),
                 code.clone(),
                 *timeout_ms,
                 expect.clone(),
@@ -1501,6 +1540,29 @@ impl Host {
 
     async fn handle(&self, request: Request) -> Reply {
         let result = match request {
+            Request::Capabilities => {
+                let state = self.state();
+                Ok(Reply::Capabilities(view::Capabilities {
+                    protocol: crate::protocol::VERSION,
+                    host: view::Build {
+                        version: env!("CARGO_PKG_VERSION").to_owned(),
+                        commit: option_env!("BROWSERUSE_SOURCE_COMMIT")
+                            .unwrap_or("unknown")
+                            .to_owned(),
+                    },
+                    browser_ready: Self::ready(&state).is_ok(),
+                    owned_sessions: true,
+                    cancellation: true,
+                    drained_close: true,
+                    recording_leases: true,
+                    group_control: state.terminal_groups && state.contract == Some(CONTRACT),
+                    terminal_groups: state.terminal_groups && state.contract == Some(CONTRACT),
+                    idle_timeout_ms: self.config.lifecycle.idle_timeout_ms,
+                    max_sessions: crate::protocol::MAX_SESSIONS,
+                    max_tabs: crate::protocol::MAX_TABS,
+                    max_execution_ms: crate::protocol::MAX_EXECUTION.as_millis() as u64,
+                }))
+            }
             Request::Status => {
                 let state = self.state();
                 Ok(Reply::Status(view::Status {
@@ -1542,9 +1604,9 @@ impl Host {
                 self.create_owned(&project).map(Reply::OwnedSession)
             }
             Request::OpenOwned { session } => {
-                match self.session_life(&session.project, Some(&session.generation)) {
+                match self.session_life(session.project(), Some(session.generation())) {
                     Ok(life) => self
-                        .open_generation(&session.project, &life)
+                        .open_generation(session.project(), &life)
                         .await
                         .map(Reply::Session),
                     Err(refusal) => Err(refusal),
@@ -1553,9 +1615,9 @@ impl Host {
             Request::CloseOwned {
                 session,
                 close_tabs,
-            } => match self.session_life(&session.project, Some(&session.generation)) {
+            } => match self.session_life(session.project(), Some(session.generation())) {
                 Ok(life) => self
-                    .close_generation(&session.project, &life, close_tabs, true)
+                    .close_generation(session.project(), &life, close_tabs, true)
                     .await
                     .map(|()| Reply::Closed),
                 Err(refusal) => Err(refusal),
@@ -1641,6 +1703,9 @@ impl Host {
         state.sessions.insert(
             project.to_owned(),
             Session {
+                created: Instant::now(),
+                metrics: nddev_browseruse_contract::GroupMetrics::default(),
+                owner_group: None,
                 token: token()?,
                 artifacts: self.config.sessions.join(project),
                 client: None,
@@ -1648,6 +1713,7 @@ impl Host {
                 owned,
                 opened: false,
                 closing: false,
+                close_tabs: false,
                 running: false,
                 used: Instant::now(),
                 aliases: HashMap::new(),
@@ -1655,6 +1721,7 @@ impl Host {
                 files: downloads::Files::default(),
                 journal: None,
                 recording: None,
+                video_leases: HashMap::new(),
                 capture: None,
             },
         );
@@ -1663,10 +1730,7 @@ impl Host {
 
     fn create_owned(&self, project: &str) -> Result<OwnedSession, Refusal> {
         let life = self.reserve(project, true)?;
-        Ok(OwnedSession {
-            project: project.into(),
-            generation: life.generation.clone(),
-        })
+        Ok(OwnedSession::new(project, life.generation.clone()))
     }
 
     async fn open(&self, project: &str) -> Result<view::Session, Refusal> {
@@ -1751,6 +1815,7 @@ impl Host {
                 .filter(|s| Arc::ptr_eq(&s.life, life))
             {
                 session.closing = true;
+                session.close_tabs = true;
             }
             tracing::warn!(event.name = "browser.session.opened", outcome = "rejected", error.type = refusal.code());
             return Err(refusal);
@@ -1764,6 +1829,12 @@ impl Host {
                 .is_some_and(|s| Arc::ptr_eq(&s.life, life) && !s.closing);
             if !current || life.stop.is_cancelled() {
                 return Err(Refusal::PermissionRequired);
+            }
+            if let Some(session) = state.sessions.get_mut(project) {
+                session.owner_group = claimed["owner"]
+                    .as_str()
+                    .filter(|id| id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+                    .map(str::to_owned);
             }
             for entry in claimed["tabs"].as_array().into_iter().flatten() {
                 if let Some(tab) = entry["tab"].as_i64() {
@@ -1866,11 +1937,25 @@ impl Host {
             && !life.stop.is_cancelled()
     }
 
-    async fn stop_executor(executor: &mut Option<executor::Executor>) -> Result<(), Refusal> {
+    async fn stop_executor(
+        &self,
+        project: &str,
+        life: &Arc<SessionLife>,
+        executor: &mut Option<executor::Executor>,
+    ) -> Result<(), Refusal> {
         if let Some(current) = executor {
             current.stop().await?;
         }
         executor.take();
+        if let Some(session) = self
+            .state()
+            .sessions
+            .get_mut(project)
+            .filter(|session| Arc::ptr_eq(&session.life, life))
+        {
+            capture::revoke(session);
+            session.video_leases.clear();
+        }
         Ok(())
     }
 
@@ -1882,7 +1967,7 @@ impl Host {
         let mut executor = tokio::time::timeout(EXTENSION_REPLY, life.executor.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        Self::stop_executor(&mut executor).await?;
+        self.stop_executor(project, life, &mut executor).await?;
         let mut state = self.state();
         if let Some(session) = state
             .sessions
@@ -1912,7 +1997,7 @@ impl Host {
         let _close = tokio::time::timeout(EXTENSION_REPLY, life.close.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        let (artifacts, opened) = {
+        let (artifacts, opened, close_tabs) = {
             let mut state = self.state();
             let session = state
                 .sessions
@@ -1920,17 +2005,64 @@ impl Host {
                 .filter(|s| Arc::ptr_eq(&s.life, life))
                 .ok_or(Refusal::SessionNotFound)?;
             session.closing = true;
+            session.close_tabs |= close_tabs;
             life.stop.cancel();
             capture::revoke(session);
             session.client = None;
             session.aliases.clear();
             session.downloads = None;
-            (session.artifacts.clone(), session.opened)
+            (
+                session.artifacts.clone(),
+                session.opened,
+                session.close_tabs,
+            )
         };
         let mut executor = tokio::time::timeout(EXTENSION_REPLY, life.executor.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        Self::stop_executor(&mut executor).await?;
+        self.stop_executor(project, life, &mut executor).await?;
+        let terminal = {
+            let state = self.state();
+            close_tabs && release && opened && state.connected && state.terminal_groups
+        };
+        if terminal {
+            let released = self.refusable_work(
+                json!({ "type": "release", "group": project, "close": true, "terminate": true }),
+                Some(PendingWork::new(life.clone())),
+            ).await?;
+            if released != json!({ "released": true, "terminated": true })
+                || self.state().contract != Some(CONTRACT)
+            {
+                return Err(Refusal::ExtensionUnavailable);
+            }
+            // This is proof that browser authority ended, not proof that an external action was
+            // undone. Retire only this generation's no-longer-runnable transport work. Its callers
+            // receive target_closed; no successful operation result is manufactured.
+            self.release_cdp(life);
+            let ended: Vec<Waiter> = {
+                let mut pending = self.pending();
+                let ids: Vec<u64> = pending
+                    .iter()
+                    .filter_map(|(id, waiter)| match waiter {
+                        Waiter::Reply {
+                            work: Some(work), ..
+                        } if Arc::ptr_eq(&work.life, life) => Some(*id),
+                        _ => None,
+                    })
+                    .collect();
+                ids.into_iter()
+                    .filter_map(|id| pending.remove(&id))
+                    .collect()
+            };
+            for waiter in ended {
+                if let Waiter::Reply { send, work, .. } = waiter {
+                    if let Some(mut work) = work {
+                        work.settle();
+                    }
+                    let _ = send.send(Err(Failure::Refused(Refusal::TargetClosed)));
+                }
+            }
+        }
         let mut pending = life.pending.subscribe();
         let drained = async {
             loop {
@@ -1947,7 +2079,7 @@ impl Host {
             .await
             .map_err(|_| Refusal::Timeout)??;
         // An unacknowledged old browser action forbids project replacement.
-        if self.state().connected && life.uncertain.load(Ordering::Acquire) {
+        if !terminal && self.state().connected && life.uncertain.load(Ordering::Acquire) {
             return Err(Refusal::Timeout);
         }
         if self.state().connected
@@ -1957,10 +2089,10 @@ impl Host {
         {
             return Err(Refusal::Timeout);
         }
-        if release && opened {
+        if release && opened && !terminal {
             let released = self
                 .refusable_work(
-                    json!({ "type": "release", "group": project, "close": close_tabs }),
+                    json!({ "type": "release", "group": project, "close": close_tabs, "handoff": !close_tabs }),
                     Some(PendingWork::new(life.clone())),
                 )
                 .await?;
@@ -2093,6 +2225,9 @@ impl Host {
             project,
             life,
             finished: false,
+            started: Instant::now(),
+            metrics_epoch: self.config.diagnostics.epoch_token(),
+            failed: true,
         };
         if executor.is_none() {
             if life.started.load(Ordering::Acquire) {
@@ -2124,9 +2259,10 @@ impl Host {
         };
         match result {
             Ok((failure, output, truncated)) => {
+                running.failed = failure.is_some();
                 let tabs = tokio::select! {
                     () = life.stop.cancelled() => {
-                        Self::stop_executor(&mut executor).await?;
+                        self.stop_executor(project, life, &mut executor).await?;
                         running.finished = true;
                         return Err(Refusal::PermissionRequired);
                     }
@@ -2141,7 +2277,7 @@ impl Host {
                 })
             }
             Err(refusal) => {
-                Self::stop_executor(&mut executor).await?;
+                self.stop_executor(project, life, &mut executor).await?;
                 running.finished = true;
                 Err(refusal)
             }
@@ -2208,10 +2344,20 @@ struct Running<'a> {
     project: &'a str,
     life: &'a Arc<SessionLife>,
     finished: bool,
+    started: Instant,
+    metrics_epoch: String,
+    failed: bool,
 }
 
 impl Drop for Running<'_> {
     fn drop(&mut self) {
+        self.host.collect_group_metrics(
+            self.project,
+            self.life,
+            &self.metrics_epoch,
+            self.started,
+            self.failed,
+        );
         if let Some(session) = self
             .host
             .state()
@@ -2275,6 +2421,7 @@ fn deliver(state: &mut State, project: &str, event: Value) {
     {
         session.client = None;
         session.closing = true;
+        session.close_tabs = true;
         session.life.stop.cancel();
         tracing::warn!(event.name = "browser.client.dropped", outcome = "error", error.type = "queue_full", dropped_count = 1u64);
     }

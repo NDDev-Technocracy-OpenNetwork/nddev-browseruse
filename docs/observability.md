@@ -114,6 +114,10 @@ Duplicates are folded:
 - repeated identical console messages are counted, not repeated;
 - an identical body is stored once.
 
+The recorder classifies a filled field within a configured time bound. If the field disappeared
+or the browser did not confirm its type in time, the fill value is redacted too. A normal field
+can therefore be conservatively redacted on a slow browser.
+
 Every record, body and journal has a size bound. Bodies are kept for textual types only (JSON,
 text, XML, form, GraphQL).
 

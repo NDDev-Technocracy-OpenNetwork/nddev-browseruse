@@ -1,7 +1,7 @@
 # Application values. Only [public] is projected to the extension. Native/executor values
 # stay local. See crates/contract for units, application boundaries and validation.
 [public]
-minimumHost = "0.2.5"
+minimumHost = "0.2.7"
 consentRevision = 1
 initialObservation = "standard"
 privateSitesLimit = 256
@@ -16,6 +16,14 @@ partsBytes = 33554432
 guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/agent-guide.md"
 privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/privacy.md"
 installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/desktop.md#install"
+
+[public.lifecycle]
+idleTimeoutMs = 300000
+sweepIntervalMs = 1000
+orphanGraceMs = 10000
+groupsLimit = 32
+recordingHeartbeatMs = 10000
+recordingLeaseMs = 30000
 
 # Private, per-connection limits; omitted from the browser public projection.
 [phone_link]

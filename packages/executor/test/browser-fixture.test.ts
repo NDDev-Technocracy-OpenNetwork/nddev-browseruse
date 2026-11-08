@@ -1,9 +1,10 @@
 // Exercise Playwright's real argument construction with Bun as an immediately failing stand-in.
 // No Chrome, browser profile data, desktop or app is started by these source-only checks.
-import { expect, test } from "bun:test";
+
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect, test } from "vitest";
 import { launchFixture } from "../../../e2e/launch.js";
 
 test("the fixture launch omits Playwright's implicit sandbox disable from actual arguments", async () => {
@@ -39,7 +40,6 @@ test("a fixture cannot opt out of the sandbox through its options or arguments",
       { args: ["--disable-seccomp-filter-sandbox"] },
       { args: ["--disable-gpu-sandbox"] },
     ]) {
-      // oxlint-disable-next-line typescript/await-thenable -- Bun types return void here; retain its documented async rejection assertion.
       await expect(
         launchFixture(profile, { executablePath: process.execPath, timeout: 5000, ...options }),
       ).rejects.toThrow("fixtures require Chromium sandbox");

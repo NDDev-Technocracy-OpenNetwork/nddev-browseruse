@@ -18,10 +18,10 @@
     "version": "2.1.12"
   },
   {
-    "file": "i18next-26.7.1.txt",
+    "file": "i18next-26.7.2.txt",
     "license": "MIT",
     "name": "i18next",
-    "version": "26.7.1"
+    "version": "26.7.2"
   },
   {
     "file": "i18next-icu-2.6.1.txt",
@@ -34,5 +34,35 @@
     "license": "BSD-3-Clause",
     "name": "intl-messageformat",
     "version": "12.1.4"
+  },
+  {
+    "file": "react-19.3.1.txt",
+    "license": "MIT",
+    "name": "react",
+    "version": "19.3.1"
+  },
+  {
+    "file": "react-dom-19.3.1.txt",
+    "license": "MIT",
+    "name": "react-dom",
+    "version": "19.3.1"
+  },
+  {
+    "file": "react-i18next-17.1.13.txt",
+    "license": "MIT",
+    "name": "react-i18next",
+    "version": "17.1.13"
+  },
+  {
+    "file": "scheduler-0.28.0.txt",
+    "license": "MIT",
+    "name": "scheduler",
+    "version": "0.28.0"
+  },
+  {
+    "file": "use-sync-external-store-1.7.0.txt",
+    "license": "MIT",
+    "name": "use-sync-external-store",
+    "version": "1.7.0"
   }
 ]

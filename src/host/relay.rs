@@ -182,7 +182,7 @@ impl Client {
         }
     }
 
-    pub fn send(&self, message: &Value) -> bool {
+    pub(super) fn send(&self, message: &Value) -> bool {
         self.outbound.try_send(message.to_string()).is_ok()
     }
 }
@@ -382,6 +382,7 @@ impl Host {
                 .is_some_and(|client| client.id == id)
         }) {
             super::capture::revoke(session);
+            session.video_leases.clear();
             session.client = None;
             session.aliases.clear();
             session.downloads = None;
@@ -544,6 +545,8 @@ impl Host {
             "NDS.activity" => Ok(self.activity(project, &params).await),
             "NDS.recording" => Ok(self.recording(project, &params).await),
             "NDS.capture" => Ok(self.capture(project, client, &params).await),
+            "NDS.videoLease" => serde_json::to_value(self.video_lease(project, client, &params))
+                .map_err(|_| Failure::Refused(crate::protocol::Refusal::InvalidRequest)),
             "Target.setDiscoverTargets" => Ok(json!({})),
             "Target.setAutoAttach" => {
                 let mut state = self.state();
@@ -815,13 +818,18 @@ mod tests {
                 owned: false,
                 opened: true,
                 closing: false,
+                close_tabs: false,
                 running: false,
+                created: Instant::now(),
                 used: Instant::now(),
+                metrics: Default::default(),
+                owner_group: None,
                 aliases,
                 downloads: None,
                 files: Default::default(),
                 journal: None,
                 recording: None,
+                video_leases: HashMap::new(),
             },
         );
         assert_eq!(tab_aliases(&state.sessions["nds"], 7), ["tab-7"]);

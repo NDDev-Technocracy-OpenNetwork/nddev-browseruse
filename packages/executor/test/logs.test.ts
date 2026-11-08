@@ -1,6 +1,6 @@
-import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import type { BrowserContext, Page } from "playwright-core";
+import { expect, test } from "vitest";
 import { attach, clearAllLogs, getLatestLogs, notified } from "../agent/logs";
 
 // A page that emits console messages the way Playwright reports them.

@@ -245,6 +245,32 @@
   "licensesPageDescription": {
     "message": "扩展组件的原始声明。本机主机程序和执行器的声明包含在其安装包中。"
   },
+  "groupTitle": { "message": "智能体工作区" },
+  "groupDescription": { "message": "一项任务对应一个分组。智能体无法访问此控制标签页。" },
+  "groupStarting": { "message": "正在启动" },
+  "groupReady": { "message": "准备就绪" },
+  "groupRunning": { "message": "正在工作" },
+  "groupRecording": { "message": "正在录制" },
+  "groupClosing": { "message": "正在结束" },
+  "groupUnavailable": { "message": "工作已结束" },
+  "groupLinkDown": { "message": "正在等待本地主机" },
+  "groupUptime": { "message": "会话时间" },
+  "groupTabs": { "message": "网站标签页" },
+  "groupAnalytics": { "message": "分组活动" },
+  "groupOperations": { "message": "操作" },
+  "groupFailures": { "message": "失败操作" },
+  "groupTotalTime": { "message": "操作用时" },
+  "groupLastTime": { "message": "上次操作" },
+  "groupIdle": { "message": "将在 {v1} 后自动清理" },
+  "groupBusyCleanup": { "message": "工作和录制期间暂停自动清理。" },
+  "groupPrivacyOff": { "message": "活动收集已关闭，指标历史已清除；仅保留运行状态和清理计时。" },
+  "groupPrivacyMetadata": { "message": "仅使用本地计数和时长。指标不包含页面内容，也不会自动导出到中心。" },
+  "groupControls": { "message": "结束任务" },
+  "groupClose": { "message": "结束任务并关闭标签页" },
+  "groupKeep": { "message": "保留网站标签页并结束任务" },
+  "groupKeepHint": { "message": "标签页将作为普通的未分组标签页保留。会话文件将在结束时删除；请先导出所需文件。" },
+  "groupStopHint": { "message": "关闭此控制标签页或将其移出分组会结束该分组。您已移出的网站标签页会保持打开。" },
+  "groupRequestFailed": { "message": "无法确认当前状态。重复操作前请先检查工作区。" },
   "sourceLink": {
     "message": "源代码"
   }

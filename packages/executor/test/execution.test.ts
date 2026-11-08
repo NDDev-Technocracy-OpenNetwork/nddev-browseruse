@@ -1,6 +1,6 @@
 // Callbacks handed to Playwright stay in the execution that registered them, against stand-ins
 // for Playwright's event emitter and page.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { bindEmitter, bindPage, type Execution, scope, withdraw } from "../execution.js";
 
 type Listener = (...args: unknown[]) => unknown;

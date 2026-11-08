@@ -1,6 +1,8 @@
 name: security
 
 on:
+  push:
+    branches: [dev]
   schedule:
     - cron: '37 3 * * *'
   workflow_dispatch:

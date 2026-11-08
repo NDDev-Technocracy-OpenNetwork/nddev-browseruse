@@ -1,11 +1,12 @@
-// Validate the staged candidate itself: all executor imports resolve and production packages
-// remain inside its directory after a move or removal of the global Bun cache.
-import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+// Validate the staged candidate itself: all executor imports resolve and production packages
+// remain inside its directory after a move or removal of the global Bun cache.
+import { expect, test } from "vitest";
 
-const repository = join(import.meta.dir, "../../..");
+const repository = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 
 test.skipIf(process.platform === "win32")(
   "the installed executor carries every module it imports",

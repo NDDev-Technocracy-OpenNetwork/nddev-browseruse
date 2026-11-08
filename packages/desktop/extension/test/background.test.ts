@@ -1,6 +1,7 @@
 // The worker's own-life rules against a scripted chrome API. Each test loads a fresh worker, holds
 // Chrome's answers where a race lies, and checks what the host and Chrome see.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
+import { Groups } from "../src/groups.js";
 
 type Message = Record<string, unknown>;
 type Listener = (...args: unknown[]) => unknown;
@@ -80,7 +81,8 @@ class Browser {
   // The owner's stored settings, an answer of local storage that waits, and the browser start
   // and install events the worker listens to.
   stored: Record<string, unknown> = { consentRevision: 1 };
-  hostVersion = "0.2.5";
+  hostVersion = "0.2.7";
+  controlStartsBlank = false;
   storageHeld: ReturnType<typeof deferred> | undefined;
   readonly startup = new Event();
   readonly installed = new Event();
@@ -193,10 +195,15 @@ class Browser {
       },
       tabs: {
         get: async (id: number) => this.tab(id),
-        query: async ({ groupId }: { groupId: number }) =>
-          [...this.tabs.values()].filter((tab) => tab.groupId === groupId),
+        query: async ({ groupId }: { groupId?: number }) =>
+          [...this.tabs.values()].filter((tab) => groupId === undefined || tab.groupId === groupId),
         create: async ({ url, windowId }: { url: string; windowId?: number }) => {
-          const tab = { id: this.next++, groupId: -1, windowId: windowId ?? 1, url };
+          const tab = {
+            id: this.next++,
+            groupId: -1,
+            windowId: windowId ?? 1,
+            url: this.controlStartsBlank && url.includes("group.html#") ? "about:blank" : url,
+          };
           this.created.push({ url, windowId });
           this.tabs.set(tab.id, tab);
           return tab;
@@ -208,6 +215,7 @@ class Browser {
           for (const id of tabIds) this.move(id, target);
           return target;
         },
+        ungroup: async (id: number) => this.move(id, -1),
         update: async (id: number, change?: { active?: boolean }) => {
           if (change?.active) this.focus.push(`tab ${id}`);
           return this.tab(id);
@@ -334,7 +342,15 @@ class Browser {
 
 // Configuration values for these tests are explicit and do not read deployment files.
 const fixtureConfig = {
-  minimumHost: "0.2.5",
+  minimumHost: "0.2.7",
+  lifecycle: {
+    idleTimeoutMs: 300000,
+    sweepIntervalMs: 1000,
+    orphanGraceMs: 10000,
+    groupsLimit: 32,
+    recordingHeartbeatMs: 10000,
+    recordingLeaseMs: 30000,
+  },
   consentRevision: 1,
   initialObservation: "standard",
   privateSitesLimit: 256,
@@ -418,6 +434,181 @@ async function until<T>(found: () => T | undefined | false): Promise<T> {
 
 const P = 10;
 const Q = 20;
+
+test("a delayed reconnect remains in the Chrome context that created its worker", async () => {
+  const first = await worker({}, []);
+  first.browser.port.onDisconnect.fire();
+  const second = await worker({}, []);
+  const listeners = second.browser.port.onMessage.listeners.length;
+  const hellos = (browser: Browser) =>
+    browser.posted.filter((message) => message.type === "hello").length;
+  const deadline = Date.now() + 5000;
+  while (hellos(first.browser) < 2 && hellos(second.browser) < 2 && Date.now() < deadline)
+    await Bun.sleep(10);
+  expect(hellos(first.browser)).toBe(2);
+  expect(second.browser.port.onMessage.listeners).toHaveLength(listeners);
+});
+
+test("a control tab that has not committed its URL is already excluded from agent authority", async () => {
+  const browser = new Browser({ p: P }, [[1, P]]);
+  browser.controlStartsBlank = true;
+  await boot(browser);
+  browser.port.onMessage.fire({ type: "claim", group: "p", id: 1 });
+  const claim = await until(() =>
+    browser.posted.find((message) => message.type === "result" && message.id === 1),
+  );
+  expect((claim.result as { tabs: unknown[] }).tabs).toHaveLength(1);
+  expect([...browser.sessions]).toEqual([1]);
+});
+
+test("a control tab never becomes an agent target and handoff keeps ordinary ungrouped pages", async () => {
+  const { browser, send } = await worker({ p: P }, [[1, P]]);
+  const claim = await send({ type: "claim", group: "p" })();
+  expect((claim.result as { tabs: unknown[] }).tabs).toHaveLength(1);
+  const anchor = [...browser.tabs.values()].find((tab) => tab.url.includes("group.html#"));
+  expect(anchor).toBeDefined();
+  expect(browser.sessions.has(anchor?.id ?? -1)).toBe(false);
+  const result = await send({ type: "release", group: "p", close: false, handoff: true })();
+  expect(result.result).toEqual({ released: true });
+  expect(browser.tab(1).groupId).toBe(-1);
+  expect(browser.tabs.has(anchor?.id ?? -1)).toBe(false);
+  expect(browser.sessions.size).toBe(0);
+  expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
+});
+
+function managed(browser: Browser, groups = new Map<string, number>()) {
+  (globalThis as unknown as { chrome: unknown }).chrome = browser.api();
+  const stopped: string[] = [];
+  return {
+    groups: new Groups(
+      fixtureConfig.lifecycle,
+      groups,
+      (project) => stopped.push(project),
+      () => {},
+    ),
+    stopped,
+  };
+}
+
+test("recovery uses the durable control tab after browser group IDs change", async () => {
+  const browser = new Browser({}, [
+    [1, P],
+    [2, Q],
+  ]);
+  const first = managed(browser, new Map([["p", P]]));
+  await first.groups.load();
+  await first.groups.ensure("p");
+  const anchor = [...browser.tabs.values()].find((tab) => tab.url.includes("group.html#"));
+  expect(anchor).toBeDefined();
+  // A whole browser restart has a fresh numeric ID and no storage.session mapping.
+  for (const tab of browser.tabs.values()) if (tab.groupId === P) tab.groupId = 778;
+  const restored = managed(browser);
+  await restored.groups.load();
+  await restored.groups.recover();
+  expect(browser.tabs.has(1)).toBe(false);
+  expect(browser.tabs.has(anchor?.id ?? -1)).toBe(false);
+  expect(browser.tabs.has(2)).toBe(true);
+  expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
+});
+
+test("worker recovery retires idle legacy groups with a retained session-storage mapping", async () => {
+  const browser = new Browser({}, [
+    [1, P],
+    [2, Q],
+  ]);
+  const owner = managed(browser, new Map([["old-task", P]]));
+  await owner.groups.load();
+  await owner.groups.recover();
+  expect(browser.tabs.has(1)).toBe(false);
+  expect(browser.tabs.has(2)).toBe(true);
+  expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
+});
+
+test("recovery retains its marker record while a browser window has not restored yet", async () => {
+  const browser = new Browser({}, [
+    [1, P],
+    [2, Q],
+  ]);
+  const first = managed(browser, new Map([["p", P]]));
+  await first.groups.load();
+  await first.groups.ensure("p");
+  const saved = [...browser.tabs.values()]
+    .filter((tab) => tab.groupId === P)
+    .map((tab) => ({ ...tab, groupId: 887 }));
+  for (const tab of saved) browser.tabs.delete(tab.id);
+  const recovered = managed(browser);
+  await recovered.groups.load();
+  await recovered.groups.recover();
+  expect((browser.stored.ownedGroups as { groups: unknown[] }).groups).toHaveLength(1);
+  for (const tab of saved) browser.tabs.set(tab.id, tab);
+  await recovered.groups.recover();
+  expect(browser.tabs.has(1)).toBe(false);
+  expect(browser.tabs.has(2)).toBe(true);
+  expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
+});
+
+test("taking back or navigating the control tab ends its old group without deleting that tab", async () => {
+  for (const action of ["move", "navigate", "remove"]) {
+    const browser = new Browser({}, [
+      [1, P],
+      [2, Q],
+    ]);
+    const owner = managed(browser, new Map([["p", P]]));
+    await owner.groups.load();
+    await owner.groups.ensure("p");
+    const anchor = [...browser.tabs.values()].find((tab) => tab.url.includes("group.html#"));
+    if (!anchor) throw new Error("control tab missing");
+    if (action === "move") {
+      anchor.groupId = Q;
+      owner.groups.moved(anchor.id, Q);
+    } else if (action === "navigate") {
+      anchor.url = "https://example.test/owner";
+      owner.groups.navigated(anchor.id, anchor.url);
+    } else {
+      browser.tabs.delete(anchor.id);
+      owner.groups.removed(anchor.id);
+    }
+    await until(() => !browser.tabs.has(1));
+    await until(() => owner.groups.identity(anchor.url.split("#")[1] ?? "") === undefined);
+    expect(owner.stopped).toEqual(["p"]);
+    expect(browser.tabs.has(2)).toBe(true);
+    if (action !== "remove") expect(browser.tabs.has(anchor.id)).toBe(true);
+  }
+});
+
+test("duplicated markers make recovery non-destructive and refuse a replacement group", async () => {
+  const browser = new Browser({}, [
+    [1, P],
+    [2, Q],
+  ]);
+  const first = managed(browser, new Map([["p", P]]));
+  await first.groups.load();
+  await first.groups.ensure("p");
+  const anchor = [...browser.tabs.values()].find((tab) => tab.url.includes("group.html#"));
+  if (!anchor) throw new Error("control tab missing");
+  browser.tabs.set(999, { ...anchor, id: 999, groupId: Q });
+  const recovered = managed(browser);
+  await recovered.groups.load();
+  await recovered.groups.recover();
+  const refusal: unknown = await recovered.groups.ensure("p").catch((error: unknown) => error);
+  expect(String(refusal)).toContain("group_ownership_conflict");
+  expect(browser.tabs.size).toBe(4);
+  expect(browser.actions).toEqual([]);
+});
+
+test("a lost host removes its abandoned group tabs and preserves a tab the owner took back", async () => {
+  const { browser, send } = await worker({ p: P }, [
+    [1, P],
+    [2, P],
+  ]);
+  await send({ type: "claim", group: "p" })();
+  browser.move(2, -1);
+  browser.port.onDisconnect.fire();
+  await until(() => !browser.tabs.has(1));
+  expect(browser.actions).toContain("remove 1");
+  expect(browser.tabs.has(2)).toBe(true);
+  expect(browser.sessions.size).toBe(0);
+});
 
 test("a capture stylesheet is removed from its original document on success and failure", async () => {
   const { browser, send } = await worker({ p: P }, [[1, P]]);
@@ -747,11 +938,17 @@ test("a new agent tab opens in its area's window, not in the window the owner wo
   browser.groupWindows.set(P, 2);
   await send({ type: "claim", group: "p" })();
   await send({ type: "open", group: "p", url: "about:blank" })();
-  expect(browser.created).toEqual([{ url: "about:blank", windowId: 2 }]);
+  expect(browser.created).toEqual([
+    { url: expect.stringContaining("group.html#"), windowId: 2 },
+    { url: "about:blank", windowId: 2 },
+  ]);
   // The first tab of an area that does not exist yet opens where Chrome puts new tabs.
   await send({ type: "claim", group: "q" })();
   await send({ type: "open", group: "q", url: "about:blank" })();
-  expect(browser.created[1]).toEqual({ url: "about:blank", windowId: undefined });
+  expect(browser.created.slice(2)).toEqual([
+    { url: expect.stringContaining("group.html#"), windowId: undefined },
+    { url: "about:blank", windowId: 1 },
+  ]);
 });
 
 test("Runtime.enable makes Chrome report the page's execution contexts again", async () => {
@@ -979,8 +1176,11 @@ test("of two setup commands in flight for the last slot exactly one is admitted"
     })();
   const held = deferred();
   browser.heldCommands.set(script, held);
+  const before = browser.commands.filter((sent) => sent.startsWith(script)).length;
   const first = send({ type: "cdp", group: "p", tab: 1, method: script, params: { source: "a" } });
-  await Bun.sleep(5);
+  await until(
+    () => browser.commands.filter((sent) => sent.startsWith(script)).length === before + 1,
+  );
   const second = send({ type: "cdp", group: "p", tab: 1, method: script, params: { source: "b" } });
   expect(await second()).toMatchObject({ error: { code: "capacity" } });
   held.resolve();
@@ -1349,7 +1549,7 @@ test("an older host stays paused even after consent until a compatible build ans
   expect(
     browser.posted.some((message) => message.type === "observation" && message.profile !== "off"),
   ).toBe(false);
-  browser.port.onMessage.fire({ type: "about", version: "0.2.5", commit: "fixture" });
+  browser.port.onMessage.fire({ type: "about", version: "0.2.7", commit: "fixture" });
   expect(await popup(browser, { type: "get" })).toMatchObject({
     enabled: true,
     hostUpdateRequired: false,

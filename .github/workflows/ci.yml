@@ -23,3 +23,5 @@ jobs:
       setup: true
       timeout-minutes: 60
       fetch-depth: 0
+      artifact: dist/qualified-linux.zip
+      artifact-name: qualified-linux

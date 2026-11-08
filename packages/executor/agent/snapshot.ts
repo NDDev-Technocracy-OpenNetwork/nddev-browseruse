@@ -24,7 +24,7 @@ const views = new Views<Page>(5);
 const scopes = new WeakMap<Page, string>();
 
 /** The refs shown last for the page are Playwright's; `prefix` enters the frame they are of. */
-export function useAriaRefs(page: Page, prefix = ""): void {
+export function activateAriaRefs(page: Page, prefix = ""): void {
   scopes.set(page, prefix);
 }
 
@@ -63,7 +63,7 @@ export async function snapshot(options: SnapshotOptions | Page | Locator): Promi
     // enter that frame.
     const part = given.locator ?? error.frame.locator(":root");
     view = compact(await part.ariaSnapshot({ mode: "ai" }));
-    useAriaRefs(page, await frameScope(error.frame));
+    activateAriaRefs(page, await frameScope(error.frame));
   }
   const scope = given.locator
     ? `locator ${given.locator}`

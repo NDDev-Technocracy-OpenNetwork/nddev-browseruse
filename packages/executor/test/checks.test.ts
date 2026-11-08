@@ -1,6 +1,7 @@
 // Checks only a person passes, found on a page without acting in it.
-import { expect, test } from "bun:test";
+
 import type { Page } from "playwright-core";
+import { expect, test } from "vitest";
 import { checks } from "../agent/checks.js";
 
 // A page with no frames, at the given address.

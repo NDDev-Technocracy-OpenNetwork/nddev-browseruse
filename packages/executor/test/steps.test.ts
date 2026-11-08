@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { ExecutionSteps } from "../agent/steps";
 
 test("concurrent browser steps keep their own durations and completion order", () => {

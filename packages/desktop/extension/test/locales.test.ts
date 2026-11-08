@@ -1,7 +1,7 @@
-import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import i18next from "i18next";
 import ICU from "i18next-icu";
+import { expect, test } from "vitest";
 
 function catalog(locale: string): Record<string, string> {
   const source = JSON.parse(

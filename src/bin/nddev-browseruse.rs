@@ -17,6 +17,7 @@ const USAGE: &str = "usage:
   nddev-browseruse skill
   nddev-browseruse devices
   nddev-browseruse [--device <name>] status
+  nddev-browseruse [--device <name>] capabilities
   nddev-browseruse [--device <name>] update
   nddev-browseruse [--device <name>] session new <project>
   nddev-browseruse [--device <name>] session list
@@ -729,6 +730,10 @@ async fn client(words: &[&str]) -> ExitCode {
     };
     let cancellation = CancellationToken::new();
     let result = match words {
+        ["capabilities"] => client
+            .capabilities(cancellation)
+            .await
+            .map(|value| print(&value)),
         ["status"] => client
             .status(cancellation)
             .await

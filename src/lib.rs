@@ -1,6 +1,6 @@
-//! Agent browser automation inside owner-granted Chrome tab groups (ADR 0015).
+//! Native composition for browser automation inside owner-granted Chrome tab groups.
 //!
-//! The NDS extension attaches `chrome.debugger` only to tabs in NDS-managed
+//! The extension attaches `chrome.debugger` only to tabs in product-managed
 //! groups and reaches the host through Chrome native messaging. The host owns
 //! sessions, bounds, the private control/CDP sockets and telemetry; each
 //! session runs agent Playwright code in its own executor process. Pages,
@@ -16,8 +16,6 @@ pub mod activity;
 mod adapter;
 #[cfg(any(unix, windows))]
 pub mod artifact;
-#[cfg(any(unix, windows))]
-mod cancellation;
 #[cfg(any(unix, windows))]
 pub mod configuration;
 #[cfg(any(unix, windows))]
@@ -42,12 +40,10 @@ mod socket;
 #[cfg(any(unix, windows))]
 pub use adapter::BrowserUseClient;
 #[cfg(any(unix, windows))]
-pub use cancellation::CancellationToken;
-#[cfg(any(unix, windows))]
 pub use io::IoError;
 #[cfg(any(unix, windows))]
-use protocol::Document;
-use protocol::Refusal;
+pub use nddev_browseruse_client::CancellationToken;
+pub use nddev_browseruse_client::{BrowserUse, Error};
 
 /// Unpacked build: the ID follows the public key pinned in `packages/desktop/extension/manifest.json`.
 pub const UNPACKED_EXTENSION_ID: &str = "lcdkocghcaakekcaeopjanfbohpfacbk";
@@ -58,94 +54,6 @@ pub const EXTENSION_IDS: [&str; 2] = [UNPACKED_EXTENSION_ID, STORE_EXTENSION_ID]
 
 /// Chrome native messaging host name registered by `install`.
 pub const NATIVE_HOST: &str = "ai.nddev.nds.browser_use";
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum Error {
-    #[cfg(any(unix, windows))]
-    #[error(transparent)]
-    Io(#[from] IoError),
-    #[error(transparent)]
-    Refused(Refusal),
-    #[error("browser-use response is invalid")]
-    InvalidResponse,
-    #[error("browser-use is not supported on this platform")]
-    UnsupportedPlatform,
-}
-
-impl From<Refusal> for Error {
-    fn from(refusal: Refusal) -> Self {
-        Self::Refused(refusal)
-    }
-}
-
-/// Application port: agents depend on typed sessions and outcomes, not on a socket.
-#[cfg(any(unix, windows))]
-pub trait BrowserUse {
-    /// Reserve before opening, retaining this handle even if opening is canceled.
-    /// A lost reserve reply can leave only a bounded, unstarted reservation.
-    fn create_owned(
-        &self,
-        project: &str,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<OwnedSession, Error>> + Send;
-    fn open_owned(
-        &self,
-        session: &OwnedSession,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<view::Session, Error>> + Send;
-    fn execute_owned(
-        &self,
-        session: &OwnedSession,
-        code: &str,
-        timeout: std::time::Duration,
-        expect: Option<Document>,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<view::Outcome, Error>> + Send;
-    /// Success acknowledges stop/reap and release for this exact generation.
-    /// On a transport failure retain the handle and the unresolved drain state.
-    fn close_owned(
-        &self,
-        session: &OwnedSession,
-        close_tabs: bool,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-    fn status(
-        &self,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<view::Status, Error>> + Send;
-    /// Opens or returns the project's session and its existing agent tab group.
-    fn open(
-        &self,
-        project: &str,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<view::Session, Error>> + Send;
-    fn sessions(
-        &self,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<Vec<view::Session>, Error>> + Send;
-    fn close(
-        &self,
-        project: &str,
-        close_tabs: bool,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<(), Error>> + Send;
-    /// Reloads an unpacked extension whose installed files are newer, or else ends a host whose
-    /// binary an install replaced while no session is open; returns whether each was requested.
-    fn update(
-        &self,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<(bool, bool), Error>> + Send;
-    /// Runs Playwright code in the project's executor. `expect` refuses the run
-    /// when that tab's document was replaced or the tab left the session.
-    fn execute(
-        &self,
-        project: &str,
-        code: &str,
-        timeout: std::time::Duration,
-        expect: Option<Document>,
-        cancellation: CancellationToken,
-    ) -> impl Future<Output = Result<view::Outcome, Error>> + Send;
-}
 
 #[cfg(test)]
 mod tests {

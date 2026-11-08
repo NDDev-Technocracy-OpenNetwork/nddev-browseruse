@@ -1,4 +1,5 @@
 //! Protocol/lifetime fixtures, not browser-provider acceptance.
+use super::observation::Observation;
 use super::*;
 
 fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
@@ -9,6 +10,14 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
     let (outbound, queue) = mpsc::channel(16);
     let host = Arc::new(Host {
         config: Config {
+            lifecycle: nddev_browseruse_contract::LifecycleSettings {
+                idle_timeout_ms: 300_000,
+                sweep_interval_ms: 1000,
+                orphan_grace_ms: 10_000,
+                groups_limit: 32,
+                recording_heartbeat_ms: 10000,
+                recording_lease_ms: 30000,
+            },
             executor_settings: crate::configuration::ExecutorSettings {
                 execution: nddev_browseruse_contract::ExecutionSettings {
                     pending_steps: 16,
@@ -84,10 +93,26 @@ fn answer(host: &Arc<Host>, request: &Value) {
     host.on_extension(json!({ "type": "result", "id": request["id"], "result": result }));
 }
 
+#[tokio::test]
+async fn discovery_reports_this_hosts_loaded_contract_without_creating_browser_work() {
+    let (host, mut queue, _root) = fixture();
+    let Reply::Capabilities(caps) = host.handle(Request::Capabilities).await else {
+        panic!("capabilities were not returned");
+    };
+    assert_eq!(caps.protocol, crate::protocol::VERSION);
+    assert_eq!(caps.host.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(caps.idle_timeout_ms, host.config.lifecycle.idle_timeout_ms);
+    assert!(caps.browser_ready && caps.owned_sessions && caps.cancellation && caps.drained_close);
+    assert!(!caps.group_control && !caps.terminal_groups);
+    assert!(host.state().sessions.is_empty());
+    assert!(host.pending().is_empty());
+    assert!(queue.try_recv().is_err());
+}
+
 fn opened_client(host: &Host, handle: &OwnedSession, id: u64) -> mpsc::Receiver<String> {
     let (send, receive) = mpsc::channel(16);
     let mut state = host.state();
-    let session = state.sessions.get_mut(&handle.project).unwrap();
+    let session = state.sessions.get_mut(handle.project()).unwrap();
     runtime::private_directory(&session.artifacts).unwrap();
     session.opened = true;
     session.client = Some(relay::Client::new(id, send, CancellationToken::new()));
@@ -122,7 +147,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     let (host, mut queue, _root) = fixture();
     let old = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&old.project, Some(&old.generation))
+        .session_life(old.project(), Some(old.generation()))
         .unwrap();
     let mut client = opened_client(&host, &old, 1);
     let expired = host
@@ -143,7 +168,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     let _ = message(&mut queue).await;
     let other = host.create_owned("other").unwrap();
     let other_life = host
-        .session_life(&other.project, Some(&other.generation))
+        .session_life(other.project(), Some(other.generation()))
         .unwrap();
     let _other_client = opened_client(&host, &other, 2);
     let other_id = host
@@ -180,7 +205,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     host.on_extension(json!({ "type": "result", "id": pending, "result": { "late": true } }));
     assert_eq!(
         host.session_life("project", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     host.shutdown().await.unwrap();
 }
@@ -362,7 +387,7 @@ async fn delayed_old_cdp_cannot_enqueue_into_a_replacement_even_with_the_same_cl
     assert_eq!(*life.cdp_pending.borrow(), 0);
     assert_eq!(
         host.session_life("project", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     host.shutdown().await.unwrap();
 }
@@ -409,10 +434,7 @@ async fn disabled_then_enabled_before_sweep_still_finishes_the_canceled_generati
 async fn legacy_reopen_after_captured_drain_finishes_does_not_report_a_missing_session() {
     let (host, mut queue, _root) = fixture();
     let old = host.reserve("legacy", false).unwrap();
-    let handle = OwnedSession {
-        project: "legacy".into(),
-        generation: old.generation.clone(),
-    };
+    let handle = OwnedSession::new("legacy", old.generation.clone());
     let _client = opened_client(&host, &handle, 1);
     host.on_control(false);
     host.on_control(true);
@@ -449,10 +471,7 @@ async fn legacy_reopen_after_captured_drain_finishes_does_not_report_a_missing_s
 async fn legacy_reopen_after_captured_drain_never_adopts_another_replacement() {
     let (host, mut queue, _root) = fixture();
     let old = host.reserve("legacy", false).unwrap();
-    let handle = OwnedSession {
-        project: "legacy".into(),
-        generation: old.generation.clone(),
-    };
+    let handle = OwnedSession::new("legacy", old.generation.clone());
     let _client = opened_client(&host, &handle, 1);
     host.on_control(false);
     host.on_control(true);
@@ -474,7 +493,7 @@ async fn legacy_reopen_after_captured_drain_never_adopts_another_replacement() {
     assert!(matches!(reopening.await, Err(Refusal::SessionNotFound)));
     assert_eq!(
         host.session_life("legacy", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     assert!(queue.try_recv().is_err());
     host.shutdown().await.unwrap();
@@ -528,8 +547,7 @@ async fn owned_handles_cannot_adopt_or_change_a_foreign_or_replaced_session() {
     let (host, mut queue, _root) = fixture();
     let original = host.create_owned("project").unwrap();
     assert!(matches!(host.create_owned("project"), Err(Refusal::Busy)));
-    let mut foreign = original.clone();
-    foreign.generation = "foreign".into();
+    let foreign = OwnedSession::new(original.project(), "foreign");
     assert!(matches!(
         host.handle(Request::CloseOwned {
             session: foreign.clone(),
@@ -574,14 +592,14 @@ async fn owned_handles_cannot_adopt_or_change_a_foreign_or_replaced_session() {
         ));
     }
     assert!(matches!(
-        host.session_life(&original.project, Some(&original.generation)),
+        host.session_life(original.project(), Some(original.generation())),
         Err(Refusal::SessionNotFound)
     ));
     assert_eq!(
-        host.session_life(&replacement.project, Some(&replacement.generation))
+        host.session_life(replacement.project(), Some(replacement.generation()))
             .unwrap()
             .generation,
-        replacement.generation
+        replacement.generation()
     );
     assert!(
         queue.try_recv().is_err(),
@@ -650,7 +668,7 @@ async fn dropped_open_waiter_retains_pending_claim_until_actual_reply() {
     let (host, mut queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     let opened = {
         let host = host.clone();
@@ -686,7 +704,7 @@ async fn unacknowledged_action_holds_closed_admission_instead_of_claiming_cleanu
     let (host, _queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     drop(PendingWork::new(life));
     assert!(matches!(
@@ -715,7 +733,7 @@ async fn prepared_executor_fixture() -> (
     let (host, queue, root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     {
         let mut state = host.state();
@@ -739,7 +757,7 @@ async fn executing_fixture() -> (
 ) {
     let (host, queue, root, handle, pid) = prepared_executor_fixture().await;
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     let task = {
         let host = host.clone();
@@ -870,6 +888,7 @@ async fn shutdown_drains_actual_running_executor_without_a_detached_cleanup_task
 #[tokio::test]
 async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_drain() {
     let (host, _queue, _root, handle, pid) = prepared_executor_fixture().await;
+    host.state().sessions.get_mut("project").unwrap().recording = Some(("interrupted".into(), 0));
     let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
     let control = {
         let host = host.clone();
@@ -897,22 +916,60 @@ async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_
         .unwrap()
         .unwrap();
     assert!(!PathBuf::from(format!("/proc/{pid}")).exists());
+    assert!(host.state().sessions["project"].recording.is_none());
     assert!(host.state().sessions["project"].closing);
     assert!(
-        host.session_life(&handle.project, Some(&handle.generation))
+        host.session_life(handle.project(), Some(handle.generation()))
             .is_ok()
     );
     host.shutdown().await.unwrap();
 }
 
 #[tokio::test]
-async fn an_idle_cli_session_closes_with_its_tabs_while_owned_and_recent_ones_stay() {
+async fn an_abandoned_owned_generation_is_reclaimed_without_its_caller_closing_it() {
+    let (host, mut queue, _root) = fixture();
+    host.create_owned("abandoned").unwrap();
+    {
+        let mut state = host.state();
+        let session = state.sessions.get_mut("abandoned").unwrap();
+        runtime::private_directory(&session.artifacts).unwrap();
+        session.opened = true;
+        session.used = Instant::now()
+            .checked_sub(
+                Duration::from_millis(host.config.lifecycle.idle_timeout_ms)
+                    + Duration::from_secs(1),
+            )
+            .unwrap();
+    }
+    let mut sweep = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(Instant::now()).await })
+    };
+    let release = tokio::select! {
+        release = message(&mut queue) => release,
+        result = &mut sweep => {
+            result.unwrap();
+            panic!("an abandoned owned generation was left behind");
+        }
+    };
+    assert_eq!(release["type"], "release");
+    assert_eq!(release["group"], "abandoned");
+    assert_eq!(release["close"], true);
+    answer(&host, &release);
+    sweep.await.unwrap();
+    assert!(!host.state().sessions.contains_key("abandoned"));
+}
+
+#[tokio::test]
+async fn an_idle_cli_session_closes_with_its_tabs_while_recent_generations_stay() {
     let (host, mut queue, _root) = fixture();
     host.reserve("idle", false).unwrap();
     host.reserve("recent", false).unwrap();
     host.create_owned("owned").unwrap();
     let long_ago = Instant::now()
-        .checked_sub(IDLE_CLOSE + Duration::from_secs(1))
+        .checked_sub(
+            Duration::from_millis(host.config.lifecycle.idle_timeout_ms) + Duration::from_secs(1),
+        )
         .unwrap();
     {
         let mut state = host.state();
@@ -920,7 +977,7 @@ async fn an_idle_cli_session_closes_with_its_tabs_while_owned_and_recent_ones_st
             let session = state.sessions.get_mut(project).unwrap();
             runtime::private_directory(&session.artifacts).unwrap();
             session.opened = true;
-            if project != "recent" {
+            if project == "idle" {
                 session.used = long_ago;
             }
         }
@@ -938,6 +995,255 @@ async fn an_idle_cli_session_closes_with_its_tabs_while_owned_and_recent_ones_st
     let state = host.state();
     assert!(!state.sessions.contains_key("idle"));
     assert!(state.sessions.contains_key("recent") && state.sessions.contains_key("owned"));
+}
+
+#[tokio::test]
+async fn a_reservation_expires_but_execution_and_recording_protect_their_groups() {
+    let (host, mut queue, _root) = fixture();
+    let long_ago = Instant::now()
+        .checked_sub(Duration::from_millis(
+            host.config.lifecycle.idle_timeout_ms + 1,
+        ))
+        .unwrap();
+    for project in ["reserved", "running"] {
+        host.create_owned(project).unwrap();
+        host.state().sessions.get_mut(project).unwrap().used = long_ago;
+    }
+    host.state().sessions.get_mut("running").unwrap().running = true;
+    let recording = host.create_owned("recording").unwrap();
+    let _client = opened_client(&host, &recording, 1);
+    host.state().sessions.get_mut("recording").unwrap().used = long_ago;
+    host.observe(Observation::Full);
+    let granted = host
+        .capture(
+            "recording",
+            1,
+            &json!({"action": "begin", "id": "fixture", "epoch": host.observation()["epoch"]}),
+        )
+        .await;
+    assert_eq!(granted["kept"], true);
+    host.close_idle(Instant::now()).await;
+    assert!(!host.state().sessions.contains_key("reserved"));
+    assert!(host.state().sessions.contains_key("running"));
+    assert!(host.state().sessions.contains_key("recording"));
+    assert!(queue.try_recv().is_err());
+    // The host enforces the capture ceiling even when its caller never sends another frame.
+    let future =
+        Instant::now() + Duration::from_millis(host.config.executor_settings.recorder.max_ms + 1);
+    let cleanup = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(future).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["group"], "recording");
+    answer(&host, &release);
+    cleanup.await.unwrap();
+    assert!(!host.state().sessions.contains_key("recording"));
+}
+
+#[tokio::test]
+async fn video_reservations_protect_only_their_live_owner_and_a_late_renew_cannot_revive_them() {
+    let (host, mut queue, _root) = fixture();
+    let handle = host.create_owned("video").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    let other = host.create_owned("other").unwrap();
+    let _other_client = opened_client(&host, &other, 2);
+    let granted = host.video_lease("video", 1, &json!({"action": "begin"}));
+    assert!(granted.kept);
+    assert_eq!(
+        granted.heartbeat_ms,
+        Some(host.config.lifecycle.recording_heartbeat_ms)
+    );
+    let lease = granted.lease.unwrap();
+    assert!(
+        !host
+            .video_lease("other", 2, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host
+            .video_lease("video", 2, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    host.state().sessions.get_mut("video").unwrap().used = Instant::now()
+        .checked_sub(Duration::from_millis(
+            host.config.lifecycle.idle_timeout_ms + 1,
+        ))
+        .unwrap();
+    host.close_idle(Instant::now()).await;
+    assert!(host.state().sessions.contains_key("video"));
+    assert!(queue.try_recv().is_err());
+    assert!(
+        host.video_lease("video", 1, &json!({"action": "stop", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(host.state().sessions["video"].video_leases.is_empty());
+    let cleanup = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(Instant::now()).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["group"], "video");
+    answer(&host, &release);
+    cleanup.await.unwrap();
+    assert!(!host.state().sessions.contains_key("video"));
+}
+
+#[tokio::test]
+async fn recording_reservations_are_bounded_and_expired_ids_are_never_recreated() {
+    let (host, _queue, _root) = fixture();
+    let handle = host.create_owned("video").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    for _ in 0..crate::protocol::MAX_TABS {
+        assert!(
+            host.video_lease("video", 1, &json!({"action": "begin"}))
+                .kept
+        );
+    }
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "begin"}))
+            .kept
+    );
+    let lease = host.state().sessions["video"]
+        .video_leases
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    *host
+        .state()
+        .sessions
+        .get_mut("video")
+        .unwrap()
+        .video_leases
+        .get_mut(&lease)
+        .unwrap() = Instant::now();
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host.state().sessions["video"]
+            .video_leases
+            .contains_key(&lease)
+    );
+    assert!(
+        host.video_lease("video", 1, &json!({"action": "begin"}))
+            .kept
+    );
+}
+
+#[tokio::test]
+async fn terminal_proof_ends_only_its_generation_and_preserves_unknown_action_outcomes() {
+    let (host, mut queue, _root) = fixture();
+    host.state().terminal_groups = true;
+    let old = host.create_owned("project").unwrap();
+    let life = host.session_life("project", None).unwrap();
+    let _client = opened_client(&host, &old, 1);
+    let action = {
+        let host = host.clone();
+        let life = life.clone();
+        tokio::spawn(async move {
+            host.refusable_work(
+                json!({"type": "open", "group": "project"}),
+                Some(PendingWork::new(life)),
+            )
+            .await
+        })
+    };
+    let request = message(&mut queue).await;
+    let other = host.create_owned("other").unwrap();
+    let other_life = host.session_life("other", None).unwrap();
+    let _other_client = opened_client(&host, &other, 2);
+    let other_id = host
+        .submit_cdp(command(), forwarded(&host, "other", 2, false))
+        .unwrap_or_else(|_| panic!("other CDP enqueue failed"));
+    let _ = message(&mut queue).await;
+    let close = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close("project", true).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["terminate"], true);
+    // A legacy acknowledgement cannot prove that outstanding browser work has ended.
+    answer(&host, &release);
+    assert_eq!(close.await.unwrap(), Err(Refusal::ExtensionUnavailable));
+    assert!(
+        host.pending()
+            .contains_key(&request["id"].as_u64().unwrap())
+    );
+    assert!(!action.is_finished());
+    assert!(matches!(host.create_owned("project"), Err(Refusal::Busy)));
+    let close = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close("project", true).await })
+    };
+    let release = message(&mut queue).await;
+    host.on_extension(json!({"type": "result", "id": release["id"], "result": {"released": true, "terminated": true}}));
+    assert_eq!(close.await.unwrap(), Ok(()));
+    assert_eq!(action.await.unwrap(), Err(Refusal::TargetClosed));
+    assert_eq!(*life.pending.borrow(), 0);
+    assert!(host.pending().contains_key(&other_id));
+    assert_eq!(*other_life.cdp_pending.borrow(), 1);
+    let replacement = host.create_owned("project").unwrap();
+    assert_ne!(replacement, old);
+    // A late answer for a retired action changes neither the replacement nor its metrics.
+    host.on_extension(json!({"type": "result", "id": request["id"], "result": {"tab": 9}}));
+    assert_eq!(
+        host.session_life("project", None).unwrap().generation,
+        replacement.generation()
+    );
+    host.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn group_analytics_respect_privacy_epochs_and_stale_control_tabs_have_no_authority() {
+    let (host, _queue, _root) = fixture();
+    host.create_owned("project").unwrap();
+    let life = host.session_life("project", None).unwrap();
+    host.state()
+        .sessions
+        .get_mut("project")
+        .unwrap()
+        .owner_group = Some("current".into());
+    host.observe(Observation::Standard);
+    let epoch = host.config.diagnostics.epoch_token();
+    host.collect_group_metrics("project", &life, &epoch, Instant::now(), false);
+    let status = host.group_status("project", "current").unwrap();
+    assert_eq!(status.metrics.unwrap().completed, 1);
+    host.observe(Observation::Off);
+    assert!(
+        host.group_status("project", "current")
+            .unwrap()
+            .metrics
+            .is_none()
+    );
+    host.observe(Observation::Full);
+    host.collect_group_metrics("project", &life, &epoch, Instant::now(), true);
+    assert_eq!(
+        host.group_status("project", "current")
+            .unwrap()
+            .metrics
+            .unwrap()
+            .completed,
+        0
+    );
+    host.group_closed("project", "retired");
+    assert!(!life.stop.is_cancelled());
+    assert!(matches!(
+        host.group_status("project", "retired"),
+        Err(Refusal::SessionNotFound)
+    ));
+    host.group_closed("project", "current");
+    assert!(life.stop.is_cancelled());
+    assert!(host.state().sessions["project"].close_tabs);
 }
 
 #[tokio::test]
@@ -966,7 +1272,7 @@ async fn a_replacement_whose_life_closes_during_its_release_claims_and_starts_no
     let (host, mut queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     {
         let mut state = host.state();
@@ -1058,7 +1364,7 @@ async fn any_other_contract_seals_open_lives_and_a_later_supported_hello_revives
         let (host, mut queue, _root) = fixture();
         let handle = host.create_owned("project").unwrap();
         let life = host
-            .session_life("project", Some(&handle.generation))
+            .session_life("project", Some(handle.generation()))
             .unwrap();
         let _client = opened_client(&host, &handle, 1);
         let mut hello = json!({ "type": "hello", "enabled": true, "version": "0.0.5" });

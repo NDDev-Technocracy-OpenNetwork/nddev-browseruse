@@ -3,12 +3,20 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
+pub mod control;
+pub mod view;
+
 mod phone;
 pub use phone::PhoneLimits;
 mod executor;
 pub use executor::{ActivitySettings, ExecutionSettings, ExecutorSettings, RecorderSettings};
 mod capture;
 pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
+mod lifecycle;
+pub use lifecycle::{
+    GroupDashboard, GroupFailure, GroupIdentity, GroupMetrics, GroupPhase, GroupStatus,
+    LifecycleSettings, VideoLeaseFailure, VideoLeaseReply, VideoLeaseRequest,
+};
 mod native;
 pub use native::{AdbSettings, NativeSettings};
 
@@ -41,6 +49,7 @@ pub struct BadgeColors {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrontendConfig {
+    pub lifecycle: LifecycleSettings,
     /// Minimum native host version that enforces observation revocation.
     pub minimum_host: String,
     /// Monotonic revision of the prominent disclosure accepted in this browser profile.
@@ -106,7 +115,8 @@ impl Settings {
             .try_into()
             .map_err(|_| "missing, unknown or mistyped setting")?;
         let public = &settings.public;
-        if !settings.phone_link.validate()
+        if !settings.public.lifecycle.validate()
+            || !settings.phone_link.validate()
             || !settings.executor.validate()
             || !settings.native.validate()
             || public.minimum_host.split('.').count() != 3
@@ -176,13 +186,29 @@ pub struct OwnerRecording {
     pub message: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerRecent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(OpenApi)]
 #[openapi(
     info(title = "nddev-browseruse local contracts", version = "2"),
     components(schemas(
         FrontendConfig,
+        view::Capabilities,
         BrowserStatus,
         OwnerRecording,
+        OwnerRecent,
+        VideoLeaseRequest,
+        VideoLeaseReply,
+        GroupStatus,
+        GroupIdentity,
+        GroupDashboard,
         BadgeColors,
         ExecutorSettings,
         CaptureRequest,
@@ -215,6 +241,13 @@ partsBytes = 4096
 guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/guide"
 privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/privacy"
 installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/install"
+[public.lifecycle]
+idleTimeoutMs = 300000
+sweepIntervalMs = 1000
+orphanGraceMs = 10000
+groupsLimit = 32
+recordingHeartbeatMs = 10000
+recordingLeaseMs = 30000
 [phone_link]
 queueMessages = 8
 browserQueueBytes = 2097152
