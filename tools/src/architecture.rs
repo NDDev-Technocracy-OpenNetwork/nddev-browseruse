@@ -17,7 +17,8 @@ const COMPONENTS: &[(&str, &[&str])] = &[
 ];
 
 pub(super) fn check() -> Result {
-    let root = std::env::current_dir()?;
+    // Windows canonical paths carry the extended-length prefix; compare canonical roots too.
+    let root = std::env::current_dir()?.canonicalize()?;
     let workspace: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
     let members = workspace["workspace"]["members"]
         .as_array()

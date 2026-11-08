@@ -800,6 +800,27 @@
           "off"
         ]
       },
+      "OwnerRecent": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "OwnerRecording": {
         "type": "object",
         "properties": {

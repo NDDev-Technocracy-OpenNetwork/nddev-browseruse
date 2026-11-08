@@ -1,10 +1,11 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 // The agent guide names every helper the executor gives agent code, so a new helper is never
 // left undocumented for agents.
-import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { expect, test } from "vitest";
 
-const root = join(import.meta.dir, "..", "..", "..");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const executor = readFileSync(join(root, "packages", "executor", "executor.ts"), "utf8");
 const guide = readFileSync(join(root, "docs", "agent-guide.md"), "utf8");
 

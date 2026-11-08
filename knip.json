@@ -3,12 +3,12 @@
   "entry": [
     "packages/desktop/extension/src/{background,popup,group,restore,legal}.ts",
     "packages/executor/executor.ts",
-    "packages/**/test/**/*.test.ts",
+    "packages/**/test/**/*.test.{ts,tsx}",
     "e2e/**/*.test.ts",
     "e2e/render-store.ts"
   ],
   "project": [
-    "packages/**/*.ts",
+    "packages/**/*.{ts,tsx}",
     "e2e/**/*.ts"
   ],
   "ignoreBinaries": [

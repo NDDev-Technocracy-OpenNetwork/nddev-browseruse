@@ -1,10 +1,3 @@
-// Phone acceptance (docs/mobile.md). The host serves a Chromium browser through the phone link,
-// which reaches it with the ADB server protocol, as it reaches a phone. A fake ADB server stands
-// in for the phone: it lists one device, answers its shell and carries its DevTools socket to a
-// Chrome for Testing that this test starts with a debugging port of its own; a phone's browser
-// runs the same DevTools server on an abstract unix socket. Playwright observes that browser
-// over its own pipe.
-import { afterAll, beforeAll, expect, test } from "bun:test";
 import {
   chmodSync,
   cpSync,
@@ -16,12 +9,20 @@ import {
 } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { BrowserContext } from "playwright-core";
+// Phone acceptance (docs/mobile.md). The host serves a Chromium browser through the phone link,
+// which reaches it with the ADB server protocol, as it reaches a phone. A fake ADB server stands
+// in for the phone: it lists one device, answers its shell and carries its DevTools socket to a
+// Chrome for Testing that this test starts with a debugging port of its own; a phone's browser
+// runs the same DevTools server on an abstract unix socket. Playwright observes that browser
+// over its own pipe.
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { launchFixture } from "./launch.js";
 
 const windows = process.platform === "win32";
-const repository = resolve(import.meta.dir, "..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const chrome = required("NDS_TEST_CHROME");
 const source = required("NDS_TEST_HOST");
 const root = mkdtempSync(join(tmpdir(), "nds-browser-use-phone-"));
@@ -246,7 +247,7 @@ test("the phone's host serves its browser", async () => {
   });
   await until(async () => (await phone("status")).body.enabled === true, "the phone link");
   const status = await phone("status");
-  expect(String(status.body.browser)).toStartWith("Chrome/");
+  expect(String(status.body.browser).startsWith("Chrome/")).toBe(true);
   // The desktop host is another one: this runtime directory has none.
   expect((await cli("status")).code).not.toBe(0);
 });

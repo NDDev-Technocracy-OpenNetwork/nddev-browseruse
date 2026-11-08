@@ -58,7 +58,16 @@ fn execute() -> Result {
             run("cargo", &["fmt", "--all"])?;
             run(
                 tool("bun"),
-                &["run", "biome", "check", "--write", "packages", "e2e"],
+                &[
+                    "run",
+                    "biome",
+                    "check",
+                    "--write",
+                    "packages",
+                    "e2e",
+                    "vitest.config.ts",
+                    "vitest.e2e.config.ts",
+                ],
             )
         }
         "test" => {
@@ -147,7 +156,7 @@ fn execute() -> Result {
                 browser.args(["run", "e2e"]);
             }
             if let Some(pattern) = std::env::args().nth(2) {
-                browser.args(["--test-name-pattern", &pattern]);
+                browser.args(["--testNamePattern", &pattern]);
             }
             browser_environment(&mut browser)?;
             browser.env(
@@ -469,27 +478,44 @@ fn generate() -> Result {
 }
 
 fn emit_browser(output: &str) -> Result {
+    if Path::new(output).is_dir() {
+        for entry in fs::read_dir(output)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if entry.file_type()?.is_file() && name.starts_with("chunk-") && name.ends_with(".js") {
+                fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    // Only bundled browser entry points ship. Remove outputs of the former per-module emitter.
+    for stale in ["groups.js", "ui.js", "restore.js", "generated/types.gen.js"] {
+        let path = Path::new(output).join(stale);
+        if path.is_file() {
+            fs::remove_file(path)?;
+        }
+    }
     let metadata = Path::new(".tools/bundle-metadata.json");
     run(
         tool("bun"),
-        &[
-            "run",
-            "tsc",
-            "-p",
-            "tsconfig.extension.json",
-            "--outDir",
-            output,
-        ],
+        &["run", "tsc", "-p", "tsconfig.extension.json", "--noEmit"],
     )?;
     run(
         tool("bun"),
         &[
             "build",
+            "packages/desktop/extension/src/background.ts",
             "packages/desktop/extension/src/popup.ts",
             "packages/desktop/extension/src/group.ts",
+            "packages/desktop/extension/src/legal.ts",
             "--target",
             "browser",
             "--minify",
+            "--splitting",
+            "--chunk-naming",
+            "chunk-[hash].[ext]",
+            "--define",
+            "process.env.NODE_ENV=\"production\"",
             "--outdir",
             output,
             "--metafile=.tools/bundle-metadata.json",
@@ -517,7 +543,28 @@ fn check_generated() -> Result {
         }
         Ok(())
     }
-    compare(generated, Path::new("packages/desktop/extension"))
+    let checked = Path::new("packages/desktop/extension");
+    compare(generated, checked)?;
+    fn scripts(path: &Path) -> Result<Vec<std::ffi::OsString>> {
+        let mut names = Vec::new();
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            if entry.file_type()?.is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "js")
+            {
+                names.push(entry.file_name());
+            }
+        }
+        names.sort();
+        Ok(names)
+    }
+    if scripts(generated)? != scripts(checked)? {
+        return Err("generated browser directory contains missing or obsolete scripts".into());
+    }
+    Ok(())
 }
 
 fn source_commit() -> Result<String> {

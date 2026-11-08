@@ -13,7 +13,6 @@ type Binding = {
 /** Chrome group IDs are session-local. A registry entry plus exactly one control tab proves
  * recovery ownership; neither a group title nor an old numeric ID is enough. */
 export class Groups {
-  private readonly browser = chrome;
   private readonly conflicts = new Set<string>();
   private readonly identities = new Map<string, GroupIdentity>();
   private readonly bindings = new Map<string, Binding>();
@@ -26,6 +25,7 @@ export class Groups {
     private readonly groups: Map<string, number>,
     private readonly stop: (project: string, identity: string) => void,
     private readonly failed: () => void,
+    private readonly browser = chrome,
   ) {}
 
   isControl(url: string | undefined): boolean {

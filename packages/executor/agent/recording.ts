@@ -53,7 +53,7 @@ export type RecordingResult = {
 /** Shrinks the viewport to the aspect ratio and returns what restores it. A tab of the owner's
  * window has no emulated viewport: it is fitted from its window's size through CDP, and the
  * override is cleared afterwards, so the tab is as it was. */
-async function fit(
+async function fitViewport(
   page: Page,
   ratio: { width: number; height: number } | null | undefined,
 ): Promise<() => Promise<void>> {
@@ -129,7 +129,7 @@ export class RecordingHandle {
   /** Films another tab from now on; the viewport fit and the ghost cursor move with it. */
   async setPage(page: Page): Promise<void> {
     if (page === this.page) return;
-    const restore = await fit(page, this.ratio);
+    const restore = await fitViewport(page, this.ratio);
     try {
       await this.capture.setPage(page);
     } catch (error) {
@@ -189,7 +189,7 @@ async function start({
   if ([...handles].some((handle) => handle.page === page)) {
     throw new Error("this page is already recording");
   }
-  const restore = await fit(page, aspectRatio);
+  const restore = await fitViewport(page, aspectRatio);
   let capture: Capture;
   try {
     capture = await Capture.start({ page, outputPath, ...options });

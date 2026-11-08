@@ -1,5 +1,5 @@
 // The search and diff views that keep agent output small.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { diffed, searched, Views } from "../agent/text";
 
 const page = [

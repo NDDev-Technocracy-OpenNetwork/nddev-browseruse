@@ -1,15 +1,15 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
     "lib": [
       "ES2024",
       "DOM"
     ],
     "types": [
       "chrome"
-    ],
-    "outDir": "packages/desktop/extension",
-    "rootDir": "packages/desktop/extension/src"
+    ]
   },
   "files": [
     "packages/desktop/extension/src/background.ts",

@@ -263,6 +263,11 @@ export type LifecycleSettings = {
 
 export type Observation = 'full' | 'standard' | 'off';
 
+export type OwnerRecent = {
+    error?: string | null;
+    lines?: Array<string> | null;
+};
+
 export type OwnerRecording = {
     error?: string | null;
     events?: number | null;

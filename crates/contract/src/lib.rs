@@ -186,6 +186,15 @@ pub struct OwnerRecording {
     pub message: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OwnerRecent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 #[derive(OpenApi)]
 #[openapi(
     info(title = "nddev-browseruse local contracts", version = "2"),
@@ -194,6 +203,7 @@ pub struct OwnerRecording {
         view::Capabilities,
         BrowserStatus,
         OwnerRecording,
+        OwnerRecent,
         GroupStatus,
         GroupIdentity,
         GroupDashboard,

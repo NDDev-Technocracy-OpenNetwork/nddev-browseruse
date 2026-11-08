@@ -24,6 +24,12 @@ flowchart LR
 | Root native package | Configuration, installation, host, CLI and phone adapter composition | Contract, client, local transport |
 | `tools` | Repeatable checks, generation and release packaging | Contract |
 
+The extension's React views live in feature folders for the popup, group dashboard and shared
+locale/theme controls. They render the generated owner projections; browser authority remains
+in the worker and native host. Browser entry points share production bundles, and generation
+removes obsolete emitted modules. Vitest checks the TypeScript behavior and components; isolated
+Chromium acceptance checks the complete product, including consent, privacy and owner controls.
+
 The SDK has no native-host, installer, configuration or NDS runtime dependency. Its constructor
 accepts an explicit absolute socket path and has no process or global telemetry side effects.
 The root package also offers the installed-configuration client constructor for the standalone

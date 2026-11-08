@@ -1,5 +1,5 @@
 // How an execution's result reads to an agent.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import {
   bounded,
   compose,

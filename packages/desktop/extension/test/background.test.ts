@@ -1,6 +1,6 @@
 // The worker's own-life rules against a scripted chrome API. Each test loads a fresh worker, holds
 // Chrome's answers where a race lies, and checks what the host and Chrome see.
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { Groups } from "../src/groups.js";
 
 type Message = Record<string, unknown>;
@@ -432,6 +432,20 @@ async function until<T>(found: () => T | undefined | false): Promise<T> {
 
 const P = 10;
 const Q = 20;
+
+test("a delayed reconnect remains in the Chrome context that created its worker", async () => {
+  const first = await worker({}, []);
+  first.browser.port.onDisconnect.fire();
+  const second = await worker({}, []);
+  const listeners = second.browser.port.onMessage.listeners.length;
+  const hellos = (browser: Browser) =>
+    browser.posted.filter((message) => message.type === "hello").length;
+  const deadline = Date.now() + 5000;
+  while (hellos(first.browser) < 2 && hellos(second.browser) < 2 && Date.now() < deadline)
+    await Bun.sleep(10);
+  expect(hellos(first.browser)).toBe(2);
+  expect(second.browser.port.onMessage.listeners).toHaveLength(listeners);
+});
 
 test("a control tab that has not committed its URL is already excluded from agent authority", async () => {
   const browser = new Browser({ p: P }, [[1, P]]);
@@ -1160,8 +1174,11 @@ test("of two setup commands in flight for the last slot exactly one is admitted"
     })();
   const held = deferred();
   browser.heldCommands.set(script, held);
+  const before = browser.commands.filter((sent) => sent.startsWith(script)).length;
   const first = send({ type: "cdp", group: "p", tab: 1, method: script, params: { source: "a" } });
-  await Bun.sleep(5);
+  await until(
+    () => browser.commands.filter((sent) => sent.startsWith(script)).length === before + 1,
+  );
   const second = send({ type: "cdp", group: "p", tab: 1, method: script, params: { source: "b" } });
   expect(await second()).toMatchObject({ error: { code: "capacity" } });
   held.resolve();

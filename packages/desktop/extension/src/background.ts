@@ -10,10 +10,14 @@ import type {
   GroupDashboard,
   GroupStatus,
   Observation,
+  OwnerRecent,
   OwnerRecording,
 } from "./generated/types.gen.js";
 import { Groups } from "./groups.js";
 import { type FrameTree, Restore, restricted } from "./restore.js";
+
+// Bind callbacks and delayed reconnects to the platform context that created this worker.
+const chrome = globalThis.chrome;
 
 const HOST = "ai.nddev.nds.browser_use";
 const PROTOCOL = "1.3";
@@ -280,6 +284,7 @@ async function load(): Promise<void> {
       send({ type: "group_closed", group: project, identity });
     },
     () => report("browser.group.cleanup", "cleanup_failed"),
+    chrome,
   );
   await managedGroups.load();
   setTimeout(() => {
@@ -1920,7 +1925,7 @@ function siteOf(url: string | undefined): string | undefined {
   }
 }
 
-async function recent(tab: number | undefined): Promise<{ lines?: string[]; error?: string }> {
+async function recent(tab: number | undefined): Promise<OwnerRecent> {
   const id = (await tabOf(tab))?.id ?? -1;
   const held = usable(id);
   if (!held) return { error: "no_agent_tab" };

@@ -1,11 +1,13 @@
 import i18next from "i18next";
 import ICU from "i18next-icu";
+import { initReactI18next, useTranslation } from "react-i18next";
+import { watchTheme } from "./theme.js";
 
 const languages = ["en", "ru", "kk", "ar", "zh-CN"] as const;
-const translations = i18next.createInstance().use(ICU);
+export const translations = i18next.createInstance().use(ICU).use(initReactI18next);
 const LANGUAGE = "popupLanguage";
 
-export function t(key: string, ...values: (string | number)[]): string {
+function t(key: string, ...values: (string | number)[]): string {
   return String(
     translations.t(key, Object.fromEntries(values.map((value, index) => [`v${index + 1}`, value]))),
   );
@@ -45,16 +47,11 @@ export async function loadLanguage(title = "title"): Promise<void> {
   }
   document.documentElement.lang = language;
   document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  const contrast = matchMedia("(prefers-contrast: more)").matches;
-  document.documentElement.dataset.theme = `${dark ? "dark" : "light"}${contrast ? "-contrast" : ""}`;
+  watchTheme();
   document.title = t(title);
-  const legal = document.getElementById("licenses-link") as HTMLAnchorElement | null;
-  if (legal) legal.href = chrome.runtime.getURL(`licenses/${language}.html`);
-  for (const node of document.querySelectorAll<HTMLElement>("[data-i18n]"))
-    node.textContent = t(node.dataset.i18n ?? "");
-  for (const node of document.querySelectorAll<HTMLElement>("[data-i18n-aria]"))
-    node.setAttribute("aria-label", t(node.dataset.i18nAria ?? ""));
-  for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-language]"))
-    button.setAttribute("aria-pressed", String(button.dataset.language === language));
+}
+
+export function useLocale() {
+  const { i18n } = useTranslation(undefined, { i18n: translations });
+  return { t, language: i18n.language };
 }

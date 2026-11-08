@@ -8,7 +8,7 @@
   header { justify-content: space-between; flex-wrap: wrap; margin-block-end: var(--space-12); }
   .brand { font-weight: var(--weight-regular); }
   .brand img { inline-size: var(--size-brand); block-size: var(--size-brand); }
-  .languages { display: flex; gap: var(--space-1); }
+  .languages { border: 0; padding: 0; margin: 0; min-inline-size: 0; display: flex; flex-wrap: wrap; gap: var(--space-1); }
   .languages button { background: transparent; color: var(--text-secondary); border: 0; border-block-end: var(--border-width-medium) solid transparent; padding: var(--space-2); min-block-size: var(--size-target-min); }
   .languages button[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent-border); }
   button { font: inherit; cursor: pointer; }

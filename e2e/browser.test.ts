@@ -2,7 +2,7 @@
 // Testing profile with the unpacked NDS extension, registers the built host
 // for that profile only and drives the agent CLI against a local fixture.
 // A separate Playwright pipe connection observes the browser independently.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -20,11 +20,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type Browser, type BrowserContext, chromium, type Page } from "playwright-core";
+import { afterAll, beforeAll, expect, test } from "vitest";
 import { launchFixture } from "./launch.js";
 
 const windows = process.platform === "win32";
-const repository = resolve(import.meta.dir, "..");
+const repository = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const chromeExecutable = required("NDS_TEST_CHROME");
 const binary = required("NDS_TEST_HOST");
 const extensionSource =
@@ -512,7 +514,7 @@ beforeAll(async () => {
           .locator("body")
           .screenshot({ path: join(process.env.NDS_E2E_SHOTS, `consent-${language}.png`) });
     }
-    await consent.locator('[data-language="en"]').click();
+    await consent.locator("select[data-language]").selectOption("en");
     await consent.locator('[data-consent-profile="full"]').click();
     await consent.waitForFunction(() => document.body.dataset.consent === "false");
     await consent.close();
@@ -691,7 +693,7 @@ test("the connected extension reports enabled control", async () => {
   const status = await cli("status");
   expect(status.code).toBe(0);
   expect(status.body.enabled).toBe(true);
-  expect(String(status.body.browser)).toStartWith("Chrome/");
+  expect(String(status.body.browser).startsWith("Chrome/")).toBe(true);
 });
 
 test("an embedding client discovers capabilities without starting a browser session", async () => {
@@ -815,9 +817,9 @@ test("popups opened by an agent page join the agent session", async () => {
   expect(result.body.value).toBe(`${origin}/target ${origin}/linked`);
   expect(notices).toHaveLength(2);
   for (const notice of notices)
-    expect(notice).toStartWith(`[WARNING] New page opened from ${origin}/`);
+    expect(notice.startsWith(`[WARNING] New page opened from ${origin}/`)).toBe(true);
   const popup = tabs(result).find((tab) => tab.url === `${origin}/target`);
-  expect(popup?.document).toBeString();
+  expect(popup?.document).toBeTypeOf("string");
 });
 
 // A sign-in button opens its own popup window, which can hold no tab group; it joins the agent's
@@ -843,7 +845,7 @@ test("a popup window an agent page opens becomes an agent tab", async () => {
     return windowId;
   };
   const popupWindow = await windowOf("/target?window");
-  expect(popupWindow).toBeNumber();
+  expect(popupWindow).toBeTypeOf("number");
   expect(popupWindow).toBe(await windowOf("/"));
   expect((await run("acceptance", "await state.signin.close(); delete state.signin")).code).toBe(0);
 });
@@ -1053,7 +1055,7 @@ async function helpers(): Promise<void> {
   const notices = result.body.notices as string[];
   const seen = JSON.parse(String(result.body.value ?? "{}")) as Record<string, string | boolean>;
   expect(seen.loaded).toBe(true);
-  expect(seen.first).toStartWith(`URL: ${origin}/helpers\n\n`);
+  expect(String(seen.first).startsWith(`URL: ${origin}/helpers\n\n`)).toBe(true);
   expect(seen.again).toBe(`URL: ${origin}/helpers\n\nNo changes since last call`);
   // Interactive lines carry a Playwright locator; short refs name the same elements.
   expect(seen.found).toContain('button "Save" [id="save"]');
@@ -1567,7 +1569,9 @@ test("the recorder turns a person's actions in an agent tab into events and fram
       `const page = await context.newPage(); await page.goto("${origin}/record"); return JSON.stringify(await recorder.start())`,
     );
     expect(started.body).toMatchObject({ failure: null });
-    expect(JSON.parse(String(started.body.value)).path).toStartWith(area("recorder"));
+    expect(String(JSON.parse(String(started.body.value)).path).startsWith(area("recorder"))).toBe(
+      true,
+    );
     // The CLI's recorder commands are the helper's calls.
     const status = await plain("-s", "recorder", "recorder", "status");
     expect(status.code).toBe(0);
@@ -1654,7 +1658,9 @@ test("the owner records their actions for the agent from the popup", async () =>
     await Bun.sleep(1000);
     await popup.locator("#record").click();
     await popup.waitForFunction(() => document.body.dataset.recording === "false");
-    expect(await popup.locator("#recording").textContent()).toStartWith("Recorded 2 actions");
+    expect(
+      (await popup.locator("#recording").textContent())?.startsWith("Recorded 2 actions"),
+    ).toBe(true);
     // Another tab of the owner is not an agent tab: the button says so.
     const own = await popup.evaluate(async () => {
       const tabs = (globalThis as unknown as { chrome: ChromeTabs }).chrome.tabs;
@@ -2657,12 +2663,8 @@ test("a private site keeps its content out of the journal, and the popup shows t
         await chrome.windows.update(window.id, { left: 0, top: 0, width: 800, height: 800 });
     });
     for (const language of ["ru", "en", "kk", "ar", "zh-CN"]) {
-      await popup.evaluate((value) => {
-        const api = globalThis as unknown as {
-          chrome: { storage: { local: { set(items: object): Promise<void> } } };
-        };
-        return api.chrome.storage.local.set({ popupLanguage: value });
-      }, language);
+      await popup.locator("select[data-language]").selectOption(language);
+      await popup.waitForFunction((value) => document.documentElement.lang === value, language);
       await popup.reload();
       await popup.waitForFunction(() => Number(document.body.dataset.recent) > 0);
       await popup.evaluate(() => document.fonts.ready);
@@ -2803,7 +2805,7 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
     ]);
     const unreachable = await plain("--device", "broken", "-s", "device", "-e", "1");
     expect(unreachable.code).toBe(2);
-    expect(unreachable.stderr).toStartWith("Error (device_unreachable)");
+    expect(unreachable.stderr.startsWith("Error (device_unreachable)")).toBe(true);
     expect((await cli("--device", "self", "session", "new", "device")).code).toBe(0);
     const ran = await plain(
       "--device",
@@ -2983,7 +2985,7 @@ test("agents read plain text, and a stuck action fails with its reason before th
       await Bun.sleep(100);
       told = await plain("-s", "plain", "-e", "1");
     }
-    expect(told.stdout).toStartWith("[WARNING] Page closed");
+    expect(told.stdout.startsWith("[WARNING] Page closed")).toBe(true);
     expect(told.stdout).toContain("for state.page");
     // A deadline beyond the bound is refused here with the usage that names the bound.
     const long = await plain("-s", "plain", "-e", "1", "--timeout", "30000");
@@ -2991,7 +2993,7 @@ test("agents read plain text, and a stuck action fails with its reason before th
     expect(long.stderr).toContain("--timeout <ms, at most 25000>");
     const refused = await plain("-s", "nowhere", "-e", "1");
     expect(refused.code).toBe(2);
-    expect(refused.stderr).toStartWith("Error (session_not_found)");
+    expect(refused.stderr.startsWith("Error (session_not_found)")).toBe(true);
     expect((await cli("session", "close", "plain")).code).toBe(0);
   } finally {
     // A failure above must not leave this session's executor and tab to the tests after it.
@@ -3232,7 +3234,7 @@ test("a lost host ends its group and its replacement starts without old browser 
   // Only the host runs from the installed prefix; cmd starts a Windows host by its wrapper.
   const hostCommand = windows ? hostBinary : `${hostBinary} chrome-extension://`;
   const [lost, ...others] = processes(hostCommand);
-  expect(lost).toBeNumber();
+  expect(lost).toBeTypeOf("number");
   expect(others).toEqual([]);
   process.kill(lost as number, "SIGKILL");
   // The extension sees its port close, releases the agent tabs and starts a new host.
@@ -3292,11 +3294,11 @@ test("host loss automatically removes an abandoned agent group", async () => {
       };
       return (await api.chrome.tabs.query({ url }))[0]?.groupId;
     }, `${origin}/?lost-cleanup`);
-    expect(group).toBeNumber();
+    expect(group).toBeTypeOf("number");
     const hostCommand = windows ? hostBinary : `${hostBinary} chrome-extension://`;
     const [lost, ...others] = processes(hostCommand);
     expect(others).toEqual([]);
-    expect(lost).toBeNumber();
+    expect(lost).toBeTypeOf("number");
     process.kill(lost as number, "SIGKILL");
     let ready = false;
     for (let attempt = 0; attempt < 150; attempt++) {
@@ -3357,12 +3359,14 @@ test.skipIf(windows)("without the host the popup links to its setup", async () =
         throw new Error(`${error.message}; the popup shows ${JSON.stringify(shown)}`);
       });
     expect(await popup.evaluate(() => document.body.dataset.link)).toBe("down");
-    expect(await popup.locator("#setup a").getAttribute("href")).toEndWith(
-      "/docs/desktop.md#install",
-    );
     expect(
-      await popup.locator('footer a[data-i18n="privacyPolicy"]').getAttribute("href"),
-    ).toEndWith("/docs/privacy.md");
+      (await popup.locator("#setup a").getAttribute("href"))?.endsWith("/docs/desktop.md#install"),
+    ).toBe(true);
+    expect(
+      (await popup.locator('footer a[data-i18n="privacyPolicy"]').getAttribute("href"))?.endsWith(
+        "/docs/privacy.md",
+      ),
+    ).toBe(true);
   } finally {
     await fresh.close();
   }
