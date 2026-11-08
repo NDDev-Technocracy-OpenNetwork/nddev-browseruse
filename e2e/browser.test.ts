@@ -1207,8 +1207,12 @@ test("a strict mode violation lists every match so the agent can pick one", asyn
       `const page = await context.newPage();
        await page.setContent('<div role="dialog"><button>From</button><button>Send</button><button>Discard</button></div>');
        await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] button').length === 3, null, { timeout: 5000 });
-       try { await page.locator("[role=dialog] button").click({ timeout: 1000 }); return "clicked"; }
+       const choices = page.locator("[role=dialog] button");
+       if (await choices.count() !== 3) throw new Error("strict fixture did not expose three matches");
+       try { await choices.click({ timeout: 5000 }); return "clicked"; }
        finally { await page.close(); }`,
+      "--timeout",
+      "20000",
     );
     const text = String(result.body.output ?? "");
     expect(text).toContain("strict mode violation");
