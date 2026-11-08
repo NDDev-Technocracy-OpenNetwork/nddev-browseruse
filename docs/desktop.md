@@ -66,7 +66,10 @@ tab-group and native-messaging APIs. Firefox has no implementation in this produ
 ## Build and validation
 
 On a build host, run `just setup`, then `just verify`. Setup builds the Rust
-project helper and installs pinned dependencies. Check is read-only and offline;
+project helper and installs pinned dependencies. It first reuses a matching Bun
+from the project or PATH; npm is only a native-runtime bootstrap when neither is
+available. Both JavaScript dependency graphs are installed and run with Bun.
+Check is read-only and offline;
 its prepared helper and dependencies can be copied to USA from the build host.
 Tests, builds and isolated browser acceptance run on build hosts only.
 

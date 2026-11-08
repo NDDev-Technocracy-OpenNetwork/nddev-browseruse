@@ -238,6 +238,7 @@ fn prepared_path(command: &mut Command) -> Result {
 }
 
 fn setup() -> Result {
+    let root = std::env::current_dir()?;
     fs::create_dir_all(".tools/bin")?;
     let package: Value = serde_json::from_slice(&fs::read("package.json")?)?;
     let version = package["packageManager"]
@@ -245,47 +246,19 @@ fn setup() -> Result {
         .and_then(|p| p.strip_prefix("bun@"))
         .ok_or("packageManager must pin Bun")?;
     if capture(tool("bun"), &["--version"]).ok().as_deref() != Some(version) {
-        let platform = match std::env::consts::OS {
-            "linux" => "linux",
-            "macos" => "darwin",
-            "windows" => "windows",
-            _ => return Err("unsupported Bun bootstrap platform".into()),
-        };
-        let architecture = match std::env::consts::ARCH {
-            "x86_64" => "x64",
-            "aarch64" => "aarch64",
-            _ => return Err("unsupported Bun bootstrap architecture".into()),
-        };
-        // npm installs the pinned native binary package without running package lifecycle scripts.
-        // It is only a bootstrap: all project TypeScript tooling runs with Bun.
-        let name = format!("@oven/bun-{platform}-{architecture}");
-        let specification = format!("{name}@{version}");
-        let mut npm = if cfg!(windows) {
-            let mut command = Command::new("cmd");
-            command.args(["/D", "/C", "npm"]);
-            command
+        if let Some(installed) = std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|directory| root.join(directory).join(executable("bun")))
+                .find(|candidate| {
+                    capture(candidate, &["--version"]).ok().as_deref() == Some(version)
+                })
+        }) {
+            install_bun(&installed)?;
         } else {
-            Command::new("npm")
-        };
-        npm.args([
-            "install",
-            "--prefix",
-            ".tools/bun",
-            "--ignore-scripts",
-            "--no-audit",
-            "--no-fund",
-            &specification,
-        ]);
-        complete(npm)?;
-        fs::copy(
-            Path::new(".tools/bun/node_modules")
-                .join(name)
-                .join("bin")
-                .join(executable("bun")),
-            tool("bun"),
-        )?;
+            bootstrap_bun(version)?;
+        }
         if capture(tool("bun"), &["--version"])? != version {
-            return Err("Bun bootstrap version mismatch".into());
+            return Err("Bun setup version mismatch".into());
         }
     }
     run(
@@ -328,6 +301,59 @@ fn setup() -> Result {
         ],
     )?;
     run("cargo", &["fetch", "--locked"])
+}
+
+fn install_bun(source: &Path) -> Result {
+    let destination = tool("bun");
+    // Never follow an old project symlink and overwrite the owner's installed runtime.
+    if fs::symlink_metadata(&destination).is_ok() {
+        fs::remove_file(&destination)?;
+    }
+    fs::copy(source, destination)?;
+    Ok(())
+}
+
+fn bootstrap_bun(version: &str) -> Result {
+    let platform = match std::env::consts::OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        "windows" => "windows",
+        _ => return Err("unsupported Bun bootstrap platform".into()),
+    };
+    let architecture = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "aarch64",
+        _ => return Err("unsupported Bun bootstrap architecture".into()),
+    };
+    // npm installs the pinned native binary package without running package lifecycle scripts.
+    // It is only a bootstrap: all project TypeScript tooling runs with Bun.
+    let name = format!("@oven/bun-{platform}-{architecture}");
+    let specification = format!("{name}@{version}");
+    let mut npm = if cfg!(windows) {
+        let mut command = Command::new("cmd");
+        command.args(["/D", "/C", "npm"]);
+        command
+    } else {
+        Command::new("npm")
+    };
+    npm.args([
+        "install",
+        "--prefix",
+        ".tools/bun",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund",
+        &specification,
+    ]);
+    complete(npm)?;
+    install_bun(
+        Path::new(".tools/bun/node_modules")
+            .join(name)
+            .join("bin")
+            .join(executable("bun"))
+            .as_path(),
+    )?;
+    Ok(())
 }
 
 fn product_version() -> Result<String> {

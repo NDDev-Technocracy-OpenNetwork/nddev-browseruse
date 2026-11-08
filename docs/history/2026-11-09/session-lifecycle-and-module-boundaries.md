@@ -66,3 +66,10 @@ of the public tree. Tooling compatibility review remains part of the PR's comple
 
 Track the work in #19, #20, #21 and PR #22. Loading the new extension and submitting store packets
 remain owner actions. No package is a production release merely because candidate tests pass.
+
+The subsequent dependency review accounted for the complete Rust and both Bun lock graphs,
+including required older companion APIs. The selected graph now takes Playwright 1.65.0,
+unbash 6.0.3, serde_spanned 1.1.2 and toml_datetime 1.1.2+spec-1.1.0. Other lock records remain
+unchanged. Lightning CSS remains an unchanged test-tool dependency, excluded from the shipped
+runtime and browser bundle. Setup now reuses a matching Bun on PATH before its separate native
+bootstrap, without writing through an old project symlink into the owner's runtime.
