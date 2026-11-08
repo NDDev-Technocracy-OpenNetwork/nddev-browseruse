@@ -42,6 +42,11 @@ generate:
 browser-check:
     {{ tools }} browser-check
 
+# Runs the same isolated Android/ADB acceptance fixtures on a build host.
+[group('browser')]
+phone-check:
+    {{ tools }} phone-check
+
 # Stages a built host and local executor dependencies without registering a browser.
 [group('browser')]
 stage output:

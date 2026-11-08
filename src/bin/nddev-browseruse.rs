@@ -201,6 +201,9 @@ async fn phone_serve(
             _ => return usage(),
         }
     }
+    if let Err(error) = nddev_browseruse::configuration::load() {
+        return failed(&Error::Io(error));
+    }
     policy.set(nddev_browseruse::diagnostics::Observation::parse(
         &serde_json::json!(observation),
     ));
@@ -246,6 +249,10 @@ async fn phone_serve(
             }
         };
         waiting = false;
+        let limits = match nddev_browseruse::configuration::load() {
+            Ok(settings) => settings.phone_link,
+            Err(error) => return failed(&Error::Io(error)),
+        };
         let mut config = match install::load() {
             Ok(config) => config,
             Err(error) => {
@@ -261,6 +268,7 @@ async fn phone_serve(
             serial,
             &chosen,
             observation,
+            limits.clone(),
             owner_stop(),
         )
         .await;
@@ -275,13 +283,27 @@ async fn phone_serve(
                 }
             }
             Ok(ended) => {
-                let reason = match ended {
-                    mobile::link::Ended::Browser => "browser_closed",
-                    mobile::link::Ended::Host => "host_stopped",
-                    mobile::link::Ended::Stopped => "owner_stopped",
+                let (reason, status) = match ended {
+                    mobile::link::Ended::Browser => ("browser_closed", 0),
+                    mobile::link::Ended::Host => ("host_stopped", 0),
+                    mobile::link::Ended::Stopped => ("owner_stopped", 0),
+                    mobile::link::Ended::Capacity => ("capacity_exhausted", 2),
+                    mobile::link::Ended::Transport => ("transport_error", 2),
+                    mobile::link::Ended::Protocol => ("invalid_frame", 2),
+                    mobile::link::Ended::InvalidConfiguration => ("invalid_configuration", 2),
+                    mobile::link::Ended::BrowserWriteTimeout => ("browser_write_timeout", 2),
+                    mobile::link::Ended::HostWriteTimeout => ("host_write_timeout", 2),
                 };
-                tracing::info!(event.name = "browser.phone.stopped", outcome = "stopped", error.type = reason);
-                return ExitCode::SUCCESS;
+                if status == 0 {
+                    tracing::info!(event.name = "browser.phone.stopped", outcome = "stopped", error.type = reason);
+                } else {
+                    tracing::error!(event.name = "browser.phone.failed", outcome = "error", error.type = reason);
+                    return refused(
+                        reason,
+                        "the phone link ended; an action already sent may have completed",
+                    );
+                }
+                return ExitCode::from(status);
             }
             Err(mobile::ServeError::Browser) => {
                 tracing::error!(event.name = "browser.phone.failed", outcome = "error", error.type = "browser_unreachable");

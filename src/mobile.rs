@@ -8,6 +8,7 @@
 
 pub mod adb;
 pub mod link;
+mod queue;
 
 use crate::host;
 
@@ -92,6 +93,7 @@ pub async fn serve(
     serial: &str,
     socket: &str,
     observation: &str,
+    limits: crate::configuration::PhoneLimits,
     stop: impl Future<Output = ()> + Send + 'static,
 ) -> Result<link::Ended, ServeError> {
     let browser = link::version(&server, serial, socket)
@@ -114,6 +116,7 @@ pub async fn serve(
             &observation,
             Some(notices),
             link_side,
+            limits,
             stop,
         )
         .await

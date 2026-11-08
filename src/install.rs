@@ -197,6 +197,7 @@ pub fn install(
     let parent = config_path.parent().ok_or(IoError::InvalidConfiguration)?;
     std::fs::create_dir_all(config_home()?).map_err(|_| IoError::Unavailable)?;
     runtime::private_directory(parent)?;
+    crate::configuration::install(parent)?;
     write_private(
         &config_path,
         &serde_json::to_vec_pretty(&HostConfig {
@@ -293,7 +294,7 @@ fn config_path() -> Result<PathBuf, IoError> {
 }
 
 /// Atomic owner-only replacement.
-fn write_private(path: &Path, bytes: &[u8]) -> Result<(), IoError> {
+pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> Result<(), IoError> {
     let temporary = path.with_extension("tmp");
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);

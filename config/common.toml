@@ -15,3 +15,15 @@ partsBytes = 33554432
 guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/agent-guide.md"
 privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/privacy.md"
 installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/desktop.md#install"
+
+# Private, per-connection limits; omitted from the browser public projection.
+[phone_link]
+queueMessages = 128
+browserQueueBytes = 8388608
+hostQueueBytes = 67108864
+incomingBytes = 8388608
+incomingMessages = 64
+pendingCalls = 256
+backgroundWork = 32
+callTimeoutMs = 30000
+writeTimeoutMs = 30000
