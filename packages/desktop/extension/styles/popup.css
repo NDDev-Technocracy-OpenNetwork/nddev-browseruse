@@ -57,7 +57,8 @@
   .languages { margin-inline-start: auto; display: flex; }
   .languages button { border: 0; border-block-end: var(--border-width-medium) solid transparent; padding: var(--space-1); background: transparent; color: var(--text-secondary); min-block-size: var(--size-target-min); }
   .languages button[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent-border); }
-  .consent-options { display: grid; gap: var(--space-2); margin-block: var(--space-3); }
+  .consent-options { display: grid; gap: var(--space-1); margin-block: var(--space-2); }
+  #consent p { margin-block: var(--space-1); }
   #consent h2 { font-size: var(--text-size-h4); color: var(--text-primary); }
   body[data-consent="true"] > section:not(#consent) { display: none; }
 }
