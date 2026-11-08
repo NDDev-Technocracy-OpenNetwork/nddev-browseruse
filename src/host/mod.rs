@@ -389,7 +389,6 @@ where
         binary,
         restart: Notify::new(),
     });
-    tracing::info!(event.name = "browser.host.started", outcome = "ready");
     // The activity journal keeps one week within its size bound (docs/observability.md).
     let journal = host.config.activity.clone();
     tokio::task::spawn_blocking(move || {
@@ -817,13 +816,22 @@ impl Host {
             },
             Some("hello") => {
                 let mut state = self.state();
+                let first = !state.connected;
                 state.connected = true;
                 state.enabled = message["enabled"].as_bool() == Some(true);
                 state.contract = message["contract"].as_u64();
                 state.downloads = message["downloads"].as_bool() == Some(true);
                 state.parts = message["parts"].as_bool() == Some(true);
                 state.private_sites = observation::sites(&message["private"]);
-                let profile = observation::Observation::parse(&message["observation"]);
+                let profile = if state.contract == Some(CONTRACT) {
+                    observation::Observation::parse(&message["observation"])
+                } else {
+                    observation::Observation::Off
+                };
+                self.config.diagnostics.set(profile);
+                if first {
+                    tracing::info!(event.name = "browser.host.started", outcome = "ready");
+                }
                 state.user_agent = bounded(message["userAgent"].as_str().unwrap_or_default(), 512);
                 state.extension = bounded(message["version"].as_str().unwrap_or_default(), 32);
                 state.browser = browser_name(&state.user_agent);

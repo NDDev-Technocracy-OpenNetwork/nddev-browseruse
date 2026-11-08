@@ -59,7 +59,8 @@ pub struct Policy(Arc<AtomicU64>);
 
 impl Default for Policy {
     fn default() -> Self {
-        Self(Arc::new(AtomicU64::new(Observation::Standard as u64)))
+        // The host has not heard the owner's persisted choice yet.
+        Self(Arc::new(AtomicU64::new(Observation::Off as u64)))
     }
 }
 
@@ -315,6 +316,7 @@ mod tests {
     fn local_diagnostics_do_not_retain_page_fields_or_collect_after_off() {
         let output = Output(Arc::new(Mutex::new(Vec::new())));
         let policy = Policy::default();
+        policy.set(Observation::Standard);
         let (collector, guard) = subscriber(policy.clone(), output.clone()).unwrap();
         tracing::subscriber::with_default(collector, || {
             tracing::info!(
@@ -346,6 +348,7 @@ mod tests {
     #[test]
     fn queued_metadata_cannot_reappear_after_collection_is_disabled_and_reenabled() {
         let policy = Policy::default();
+        policy.set(Observation::Standard);
         let old = policy.capture(&Level::INFO).unwrap();
         policy.set(Observation::Off);
         policy.set(Observation::Full);
@@ -364,6 +367,17 @@ mod tests {
             Arc::new(AtomicU64::new(0)),
             output.clone(),
         );
+        assert!(output.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn startup_diagnostics_wait_for_the_owners_observation_choice() {
+        let output = Output(Arc::new(Mutex::new(Vec::new())));
+        let (collector, guard) = subscriber(Policy::default(), output.clone()).unwrap();
+        tracing::subscriber::with_default(collector, || {
+            tracing::error!(event.name = "browser.startup.failed", outcome = "error");
+        });
+        drop(guard);
         assert!(output.0.lock().unwrap().is_empty());
     }
 }
