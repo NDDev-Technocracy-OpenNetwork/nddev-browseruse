@@ -29,6 +29,11 @@ backgroundWork = 32
 callTimeoutMs = 30000
 writeTimeoutMs = 30000
 
+[executor.execution]
+pendingSteps = 16
+recentSteps = 8
+snapshotTimeoutMs = 1000
+
 [executor.activity]
 batchRecords = 32
 batchBytes = 921600

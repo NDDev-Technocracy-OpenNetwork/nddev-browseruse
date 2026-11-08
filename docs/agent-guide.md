@@ -68,8 +68,22 @@ several executions; `state` survives between them.
     them. Callbacks of scripts that ended on their own keep working.
   - An action already sent may still complete, so look at the page before you retry.
   - The failure reads `aborted`, and the exit code is 1.
+  - The answer includes `Execution steps:` with bounded completed/running operation names and
+    durations. It contains no URLs, locators or operation arguments. A late operation may still
+    complete; the timings do not prove rollback.
 - **A script that blocks the executor**, such as `while (true) {}`, cannot be aborted. It is
   stopped, its state is lost, and the refusal reads `timeout` with exit code 2.
+
+Use separate executions for navigation, readiness and capture. For a remote page, start with
+`goto(url, {waitUntil:"domcontentloaded",timeout:12000})` in a 20 s execution, then
+`waitForPageLoad({page:state.page,timeout:4000})` in a 7 s execution, and take the screenshot
+in its own 10 s execution. Each request leaves room for route overhead within the 25 s ceiling.
+These are budgets, not promises that a stalled site or browser will finish. Inspect the step
+timings and current page before retrying an operation that can change state.
+
+Live tab metadata has its own short budget. If it is unavailable, `document` is null and
+URL/title can be empty; the execution outcome is still returned. Inspect the page again before
+constructing `--expect` from a fresh document identifier.
 
 ## Devices
 

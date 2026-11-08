@@ -88,6 +88,7 @@ let origin: string;
 let requests = 0;
 const served = { once: 0 };
 let delayedResponse: (() => void) | undefined;
+let finishDeadlineNavigation: (() => void) | undefined;
 function releaseDelayedResponse(): void {
   delayedResponse?.();
 }
@@ -246,6 +247,16 @@ beforeAll(async () => {
     fetch(request) {
       requests += 1;
       const path = new URL(request.url).pathname;
+      if (path === "/deadline-navigation") {
+        return new Promise<Response>((resolve) => {
+          finishDeadlineNavigation = () =>
+            resolve(
+              new Response("<!doctype html><title>Released</title><h1>Released</h1>", {
+                headers: { "content-type": "text/html" },
+              }),
+            );
+        });
+      }
       if (path === "/api/revocation") {
         return new Promise<Response>((resolve) => {
           delayedResponse = () => resolve(Response.json({ note: "revoked-body-fixture" }));
@@ -1867,7 +1878,8 @@ test("detaching raw browser CDP sessions releases their children and capacity", 
          if (owned.length !== 1) throw new Error("expected one owned target");
          const [target] = owned;
          const { sessionId } = await root.send("Target.attachToTarget", { targetId: target.targetId, flatten: true });
-         root.on("Target.detachedFromTarget", event => { if (event.sessionId === sessionId) detachedChildren++; });
+         const nested = await root.send("Target.attachToBrowserTarget");
+         root.on("Target.detachedFromTarget", event => { if (event.sessionId === sessionId || event.sessionId === nested.sessionId) detachedChildren++; });
          await root.detach();
          let refused = false;
          try { await root.send("Browser.getVersion"); }
@@ -1878,7 +1890,7 @@ test("detaching raw browser CDP sessions releases their children and capacity", 
       "--timeout",
       "20000",
     );
-    expect(result.body).toMatchObject({ failure: null, value: "70 Fixture false" });
+    expect(result.body).toMatchObject({ failure: null, value: "140 Fixture false" });
     expect(result.code).toBe(0);
   } finally {
     await cli("session", "close", "raw-detach");
@@ -2841,6 +2853,64 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
     await cli("--device", "self", "session", "close", "device");
     rmSync(devices, { force: true });
     rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("an execution deadline names completed and running browser steps without arguments", async () => {
+  await opened("deadline-steps");
+  try {
+    const ready = await run(
+      "deadline-steps",
+      `state.page = await context.newPage(); await state.page.goto("${origin}/"); return await state.page.title()`,
+    );
+    expect(ready.body.value).toBe("Fixture");
+    const result = await run(
+      "deadline-steps",
+      `await state.page.title(); await waitForPageLoad({page:state.page,timeout:200,minWait:0}); await state.page.goto("${origin}/deadline-navigation?token=synthetic-secret", { timeout:0, waitUntil:"domcontentloaded" })`,
+      "--timeout",
+      "1000",
+    );
+    expect(result.body).toMatchObject({ failure: "aborted" });
+    expect(tabs(result)[0]?.document).toBeNull();
+    const output = String(result.body.output);
+    const steps = output.split("\n").find((line) => line.startsWith("Execution steps:"));
+    expect(steps).toMatch(/\btitle \d+ ms/);
+    expect(steps).toContain("waitForPageLoad");
+    expect(steps).toMatch(/running \[goto \d+ ms/);
+    expect(steps).not.toContain(origin);
+    expect(steps).not.toContain("synthetic-secret");
+    expect(output).toContain("may still complete");
+    finishDeadlineNavigation?.();
+    const resumed = await run(
+      "deadline-steps",
+      "await state.page.getByRole('heading', {name:'Released'}).waitFor(); return await state.page.title()",
+    );
+    expect(resumed.body.value).toBe("Released");
+    const started = Date.now();
+    const submitted = await run(
+      "deadline-steps",
+      `void state.page.goto("${origin}/deadline-navigation?token=another-synthetic-secret", {timeout:0}).catch(()=>{}); return "submitted"`,
+      "--timeout",
+      "2000",
+    );
+    expect(submitted.body).toMatchObject({ failure: null, value: "submitted" });
+    expect(Date.now() - started).toBeLessThan(5000);
+    // A fire-and-forget navigation can leave the preceding document current until commit.
+    const metadata = tabs(submitted)[0];
+    expect(metadata).toBeDefined();
+    if (metadata?.document) {
+      expect(metadata.document).toEqual(tabs(resumed)[0]?.document);
+      expect(submitted.body.tabs).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Released" })]),
+      );
+    } else {
+      expect(metadata?.url).toBe("");
+    }
+    finishDeadlineNavigation?.();
+  } finally {
+    finishDeadlineNavigation?.();
+    finishDeadlineNavigation = undefined;
+    await cli("session", "close", "deadline-steps");
   }
 });
 

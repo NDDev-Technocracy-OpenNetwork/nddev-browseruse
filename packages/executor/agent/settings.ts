@@ -7,7 +7,7 @@ export const executorSettings: ExecutorSettings = values;
 /** Fixed for this executor lifetime. The host validates all units and bounds at startup. */
 export function configure(settings: ExecutorSettings | undefined): boolean {
   if (!settings || typeof settings !== "object") return false;
-  for (const name of ["activity", "recorder"] as const) {
+  for (const name of ["execution", "activity", "recorder"] as const) {
     const incoming = settings[name];
     const expected = executorSettings[name];
     if (
@@ -21,6 +21,7 @@ export function configure(settings: ExecutorSettings | undefined): boolean {
     )
       return false;
   }
+  Object.assign(executorSettings.execution, settings.execution);
   Object.assign(executorSettings.activity, settings.activity);
   Object.assign(executorSettings.recorder, settings.recorder);
   return true;

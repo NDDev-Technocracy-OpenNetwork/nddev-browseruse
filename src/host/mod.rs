@@ -111,6 +111,21 @@ pub(crate) struct Host {
     restart: Notify,
 }
 
+/// Dropped reads do not retain reply slots. Work leases still await their actual completion.
+struct PendingRead<'a> {
+    host: &'a Host,
+    id: u64,
+    remove: bool,
+}
+
+impl Drop for PendingRead<'_> {
+    fn drop(&mut self) {
+        if self.remove {
+            self.host.pending().remove(&self.id);
+        }
+    }
+}
+
 /// A host binary's identity on disk: an install replaces the file under the same path. A copy can
 /// keep its source's size and modification time (macOS clones files), so on Unix the file's own
 /// device and inode decide.
@@ -754,6 +769,7 @@ impl Host {
         message: Value,
         work: Option<PendingWork>,
     ) -> Result<Value, Failure> {
+        let remove = work.is_none();
         let (reply, response) = oneshot::channel();
         let id = self
             .submit(
@@ -765,6 +781,11 @@ impl Host {
                 },
             )
             .await?;
+        let _read = PendingRead {
+            host: self,
+            id,
+            remove,
+        };
         match tokio::time::timeout(EXTENSION_REPLY, response).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(Failure::Refused(Refusal::ExtensionUnavailable)),
@@ -2140,10 +2161,16 @@ impl Host {
             ids.sort_unstable();
             ids
         };
-        let live = self
-            .refusable(json!({ "type": "tabs", "tabs": ids }))
-            .await
-            .unwrap_or_default();
+        // A pending navigation can stall main-world metadata even after the script answered.
+        // Metadata is optional: an execution result must still reach its caller on time.
+        let live = tokio::time::timeout(
+            Duration::from_millis(self.config.executor_settings.execution.snapshot_timeout_ms),
+            self.refusable(json!({ "type": "tabs", "tabs": ids })),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or_default();
         let mut state = self.state();
         ids.iter()
             .filter_map(|id| {
@@ -2151,9 +2178,9 @@ impl Host {
                     .as_array()
                     .and_then(|tabs| tabs.iter().find(|entry| entry["tab"].as_i64() == Some(*id)));
                 let tab = state.tabs.get_mut(id)?;
-                if let Some(document) = entry.and_then(|entry| entry["document"].as_str()) {
-                    tab.document = Some(document.to_owned());
-                }
+                tab.document = entry
+                    .and_then(|entry| entry["document"].as_str())
+                    .map(str::to_owned);
                 Some(view::Tab {
                     target: tab.target.clone(),
                     document: tab.document.clone(),

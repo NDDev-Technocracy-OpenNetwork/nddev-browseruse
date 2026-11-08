@@ -366,16 +366,46 @@
         ],
         "description": "Private local operation data. Never implement Debug or send these fields to diagnostics."
       },
+      "ExecutionSettings": {
+        "type": "object",
+        "description": "Operational deadline context, independent of retained observation data.",
+        "required": [
+          "pendingSteps",
+          "recentSteps",
+          "snapshotTimeoutMs"
+        ],
+        "properties": {
+          "pendingSteps": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recentSteps": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "snapshotTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Optional live tab metadata must leave room for the client's execution reply.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "ExecutorSettings": {
         "type": "object",
         "description": "Public to the local thin executor. Fixed for one host/executor lifetime; policy stays live.",
         "required": [
+          "execution",
           "activity",
           "recorder"
         ],
         "properties": {
           "activity": {
             "$ref": "#/components/schemas/ActivitySettings"
+          },
+          "execution": {
+            "$ref": "#/components/schemas/ExecutionSettings"
           },
           "recorder": {
             "$ref": "#/components/schemas/RecorderSettings"
