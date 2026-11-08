@@ -212,7 +212,7 @@ async function ownerSwitch(enable: boolean): Promise<void> {
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   const toggle = page.locator("#toggle");
   await page.waitForFunction(
-    () => !(document.getElementById("toggle") as HTMLButtonElement).disabled,
+    () => (document.getElementById("toggle") as HTMLButtonElement | null)?.disabled === false,
   );
   if ((await toggle.getAttribute("aria-checked")) !== String(enable)) await toggle.click();
   await page.waitForFunction(
@@ -3185,6 +3185,39 @@ test("the group control tab shows local analytics and hands retained pages back 
       () => Number(document.getElementById("operations")?.textContent) >= 1,
     );
     expect(await dashboard.locator("#tabs").textContent()).toBe("1");
+    for (const language of ["en", "ru", "kk", "ar", "zh-CN"]) {
+      await dashboard.locator(`[data-language="${language}"]`).click();
+      await dashboard.waitForFunction((value) => document.documentElement.lang === value, language);
+      expect(await dashboard.evaluate(() => document.documentElement.dir)).toBe(
+        language === "ar" ? "rtl" : "ltr",
+      );
+      for (const colorScheme of ["light", "dark"] as const) {
+        for (const contrast of ["no-preference", "more"] as const) {
+          await dashboard.emulateMedia({ colorScheme, contrast });
+          const theme = `${colorScheme}${contrast === "more" ? "-contrast" : ""}`;
+          await dashboard.waitForFunction(
+            (value) => document.documentElement.dataset.theme === value,
+            theme,
+          );
+          for (const width of [360, 1280]) {
+            await dashboard.setViewportSize({ width, height: 1000 });
+            await dashboard.evaluate(() => document.fonts.ready);
+            expect(
+              await dashboard.evaluate(
+                () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+              ),
+              `${language} ${theme} ${width}px group layout`,
+            ).toBe(true);
+            if (process.env.NDS_E2E_SHOTS)
+              await dashboard.screenshot({
+                path: join(process.env.NDS_E2E_SHOTS, `group-${language}-${theme}-${width}.png`),
+                fullPage: true,
+              });
+          }
+        }
+      }
+    }
+    await dashboard.emulateMedia({ colorScheme: "light", contrast: "no-preference" });
     await observation("off");
     await dashboard.waitForFunction(() => document.getElementById("metrics")?.hidden === true);
     await observation("full");
@@ -3338,6 +3371,59 @@ test("host loss automatically removes an abandoned agent group", async () => {
 // A store install on a device without the host: the popup says the host is missing and links to
 // its setup, and the footer links to the privacy policy. On Windows the registry registration of
 // this run reaches every Chrome for Testing profile, so a fresh profile still finds the host.
+test.skipIf(Bun.which("ffmpeg") === null)(
+  "a real video recording survives the complete idle lease and then closes cleanly",
+  async () => {
+    const project = "video-idle";
+    await opened("plain-idle");
+    expect(
+      (
+        await run(
+          "plain-idle",
+          `const page = await context.newPage(); await page.goto("${origin}/?plain-idle"); return "idle"`,
+        )
+      ).body.value,
+    ).toBe("idle");
+    const plain = await observed("/?plain-idle");
+    await opened(project);
+    try {
+      const started = await run(
+        project,
+        `state.page = await context.newPage(); await state.page.goto("${origin}/?video-idle"); state.video = await recording.start({page: state.page, outputPath: artifacts + "/idle.mp4", frameRate: 1, maxSize: 160, maxDurationMs: 0}); return "recording"`,
+        "--timeout",
+        "25000",
+      );
+      expect(started.body.value).toBe("recording");
+      const idle = Number((await cli("capabilities")).body.idle_timeout_ms);
+      expect(idle).toBe(300000);
+      const deadline = Date.now() + idle + 10000;
+      // These are no agent operations: the execution lease must remain untouched throughout.
+      while (Date.now() < deadline) await Bun.sleep(Math.min(1000, deadline - Date.now()));
+      expect(plain?.isClosed()).toBe(true);
+      expect((await cli("session", "list")).body).not.toContainEqual(
+        expect.objectContaining({ project: "plain-idle" }),
+      );
+      expect((await cli("session", "list")).body).toContainEqual({
+        project,
+        tabs: 1,
+        executor: true,
+      });
+      expect(
+        (await run(project, 'await state.video.stop(); return "stopped"', "--timeout", "25000"))
+          .body.value,
+      ).toBe("stopped");
+      const page = await observed("/?video-idle");
+      expect(page?.isClosed()).toBe(false);
+      expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
+      expect(page?.isClosed()).toBe(true);
+    } finally {
+      await cli("session", "close", project, "--close-tabs");
+      await cli("session", "close", "plain-idle", "--close-tabs");
+    }
+  },
+  420000,
+);
+
 test.skipIf(windows)("without the host the popup links to its setup", async () => {
   const fresh = await launchFixture(mkdtempSync(join(root, "no-host-")), {
     executablePath: chromeExecutable,

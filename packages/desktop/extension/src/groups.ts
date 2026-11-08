@@ -303,8 +303,9 @@ export class Groups {
 
   async recover(): Promise<void> {
     await this.discover();
-    // storage.session belongs to this browser lifetime. Its legacy mapping is still valid
-    // authority during upgrade, unlike a numeric ID restored from disk after browser restart.
+    // A legacy mapping retained across worker suspension still proves this browser's ownership.
+    // Extension reload/update and whole-browser restart clear storage.session; a numeric ID
+    // recovered from elsewhere never authorizes cleanup.
     // Mark then retire only idle legacy areas; an admitted claim serializes on the same promise.
     const legacy = [...this.groups.keys()]
       .filter(

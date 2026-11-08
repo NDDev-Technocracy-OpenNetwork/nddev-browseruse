@@ -22,6 +22,8 @@ idleTimeoutMs = 300000
 sweepIntervalMs = 1000
 orphanGraceMs = 10000
 groupsLimit = 32
+recordingHeartbeatMs = 10000
+recordingLeaseMs = 30000
 
 # Private, per-connection limits; omitted from the browser public projection.
 [phone_link]

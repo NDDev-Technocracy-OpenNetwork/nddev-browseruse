@@ -382,6 +382,7 @@ impl Host {
                 .is_some_and(|client| client.id == id)
         }) {
             super::capture::revoke(session);
+            session.video_leases.clear();
             session.client = None;
             session.aliases.clear();
             session.downloads = None;
@@ -544,6 +545,8 @@ impl Host {
             "NDS.activity" => Ok(self.activity(project, &params).await),
             "NDS.recording" => Ok(self.recording(project, &params).await),
             "NDS.capture" => Ok(self.capture(project, client, &params).await),
+            "NDS.videoLease" => serde_json::to_value(self.video_lease(project, client, &params))
+                .map_err(|_| Failure::Refused(crate::protocol::Refusal::InvalidRequest)),
             "Target.setDiscoverTargets" => Ok(json!({})),
             "Target.setAutoAttach" => {
                 let mut state = self.state();
@@ -826,6 +829,7 @@ mod tests {
                 files: Default::default(),
                 journal: None,
                 recording: None,
+                video_leases: HashMap::new(),
             },
         );
         assert_eq!(tab_aliases(&state.sessions["nds"], 7), ["tab-7"]);

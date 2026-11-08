@@ -27,7 +27,6 @@ pub use crate::Build;
 
 /// Discovery is a separate operation so an older client receives the unchanged Status shape.
 #[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Capabilities {
     pub protocol: u32,
     pub host: Build,
@@ -35,6 +34,7 @@ pub struct Capabilities {
     pub owned_sessions: bool,
     pub cancellation: bool,
     pub drained_close: bool,
+    pub recording_leases: bool,
     pub group_control: bool,
     pub terminal_groups: bool,
     pub idle_timeout_ms: u64,

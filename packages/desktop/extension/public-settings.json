@@ -3,7 +3,9 @@
     "idleTimeoutMs": 300000,
     "sweepIntervalMs": 1000,
     "orphanGraceMs": 10000,
-    "groupsLimit": 32
+    "groupsLimit": 32,
+    "recordingHeartbeatMs": 10000,
+    "recordingLeaseMs": 30000
   },
   "minimumHost": "0.2.7",
   "consentRevision": 1,

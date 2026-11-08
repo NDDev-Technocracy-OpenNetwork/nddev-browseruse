@@ -218,6 +218,8 @@ struct Session {
     /// The recorder's current recording, as its journal records report it: its id and the
     /// owner's actions so far. The popup reads it without running anything in the session.
     recording: Option<(String, u64)>,
+    /// Active encoder reservations; only an acknowledged begin creates one, renew never does.
+    video_leases: HashMap<String, Instant>,
     capture: Option<Arc<Mutex<capture::Capture>>>,
 }
 
@@ -1086,20 +1088,26 @@ impl Host {
     /// Reclaims every abandoned generation, including managed callers that disappeared without
     /// closing. Actual execution and explicit recording retain their current life.
     async fn close_idle(&self, now: Instant) {
-        let idle: Vec<(String, Arc<SessionLife>)> = self
-            .state()
-            .sessions
-            .iter()
-            .filter(|(_, session)| {
-                (!session.closing || !session.life.stop.is_cancelled())
-                    && !session.running
-                    && session.recording.is_none()
-                    && session.capture.is_none()
-                    && now.duration_since(session.used)
-                        >= Duration::from_millis(self.config.lifecycle.idle_timeout_ms)
-            })
-            .map(|(project, session)| (project.clone(), session.life.clone()))
-            .collect();
+        let idle: Vec<(String, Arc<SessionLife>)> = {
+            let mut state = self.state();
+            for session in state.sessions.values_mut() {
+                session.video_leases.retain(|_, deadline| *deadline > now);
+                capture::expire(session, now, self.config.executor_settings.recorder.max_ms);
+            }
+            state
+                .sessions
+                .iter()
+                .filter(|(_, session)| {
+                    (!session.closing || !session.life.stop.is_cancelled())
+                        && !session.running
+                        && session.video_leases.is_empty()
+                        && session.capture.is_none()
+                        && now.duration_since(session.used)
+                            >= Duration::from_millis(self.config.lifecycle.idle_timeout_ms)
+                })
+                .map(|(project, session)| (project.clone(), session.life.clone()))
+                .collect()
+        };
         // The session ceiling bounds this fan-out. One unresponsive generation must not delay
         // cleanup of every other abandoned group by a complete extension deadline.
         futures_util::future::join_all(idle.into_iter().map(|(project, life)| async move {
@@ -1546,6 +1554,7 @@ impl Host {
                     owned_sessions: true,
                     cancellation: true,
                     drained_close: true,
+                    recording_leases: true,
                     group_control: state.terminal_groups && state.contract == Some(CONTRACT),
                     terminal_groups: state.terminal_groups && state.contract == Some(CONTRACT),
                     idle_timeout_ms: self.config.lifecycle.idle_timeout_ms,
@@ -1712,6 +1721,7 @@ impl Host {
                 files: downloads::Files::default(),
                 journal: None,
                 recording: None,
+                video_leases: HashMap::new(),
                 capture: None,
             },
         );
@@ -1927,11 +1937,25 @@ impl Host {
             && !life.stop.is_cancelled()
     }
 
-    async fn stop_executor(executor: &mut Option<executor::Executor>) -> Result<(), Refusal> {
+    async fn stop_executor(
+        &self,
+        project: &str,
+        life: &Arc<SessionLife>,
+        executor: &mut Option<executor::Executor>,
+    ) -> Result<(), Refusal> {
         if let Some(current) = executor {
             current.stop().await?;
         }
         executor.take();
+        if let Some(session) = self
+            .state()
+            .sessions
+            .get_mut(project)
+            .filter(|session| Arc::ptr_eq(&session.life, life))
+        {
+            capture::revoke(session);
+            session.video_leases.clear();
+        }
         Ok(())
     }
 
@@ -1943,7 +1967,7 @@ impl Host {
         let mut executor = tokio::time::timeout(EXTENSION_REPLY, life.executor.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        Self::stop_executor(&mut executor).await?;
+        self.stop_executor(project, life, &mut executor).await?;
         let mut state = self.state();
         if let Some(session) = state
             .sessions
@@ -1996,7 +2020,7 @@ impl Host {
         let mut executor = tokio::time::timeout(EXTENSION_REPLY, life.executor.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        Self::stop_executor(&mut executor).await?;
+        self.stop_executor(project, life, &mut executor).await?;
         let terminal = {
             let state = self.state();
             close_tabs && release && opened && state.connected && state.terminal_groups
@@ -2238,7 +2262,7 @@ impl Host {
                 running.failed = failure.is_some();
                 let tabs = tokio::select! {
                     () = life.stop.cancelled() => {
-                        Self::stop_executor(&mut executor).await?;
+                        self.stop_executor(project, life, &mut executor).await?;
                         running.finished = true;
                         return Err(Refusal::PermissionRequired);
                     }
@@ -2253,7 +2277,7 @@ impl Host {
                 })
             }
             Err(refusal) => {
-                Self::stop_executor(&mut executor).await?;
+                self.stop_executor(project, life, &mut executor).await?;
                 running.finished = true;
                 Err(refusal)
             }

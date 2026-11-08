@@ -151,7 +151,7 @@ fn execute() -> Result {
             let target = target_directory()?;
             let mut browser = Command::new(tool("bun"));
             if command == "phone-check" {
-                browser.args(["test", "e2e/phone.test.ts", "--timeout", "60000"]);
+                browser.args(["run", "e2e", "e2e/phone.test.ts"]);
             } else {
                 browser.args(["run", "e2e"]);
             }

@@ -3,9 +3,79 @@ use super::{Host, SessionLife, capture, observation::Observation};
 use crate::protocol::Refusal;
 use nddev_browseruse_contract::{GroupPhase, GroupStatus};
 use serde_json::{Value, json};
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 impl Host {
+    /// Only an acknowledged begin allocates a reservation. A late renew after stop or expiry
+    /// cannot recreate it, and every reservation belongs to this exact connected client/life.
+    pub(super) fn video_lease(
+        &self,
+        project: &str,
+        client: u64,
+        params: &Value,
+    ) -> nddev_browseruse_contract::VideoLeaseReply {
+        use nddev_browseruse_contract::{
+            VideoLeaseFailure as Error, VideoLeaseReply as Reply, VideoLeaseRequest as Request,
+        };
+        let Ok(request) = serde_json::from_value::<Request>(params.clone()) else {
+            return Reply::refused(Error::InvalidRequest);
+        };
+        if let Request::Renew { lease } | Request::Stop { lease } = &request
+            && (lease.len() != 32 || !lease.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        {
+            return Reply::refused(Error::InvalidRequest);
+        }
+        let now = Instant::now();
+        let mut state = self.state();
+        if Self::ready(&state).is_err() {
+            return Reply::refused(Error::TargetClosed);
+        }
+        let Some(session) = state.sessions.get_mut(project).filter(|session| {
+            session.opened
+                && !session.closing
+                && !session.life.stop.is_cancelled()
+                && session
+                    .client
+                    .as_ref()
+                    .is_some_and(|owner| owner.id == client)
+        }) else {
+            return Reply::refused(Error::TargetClosed);
+        };
+        session.video_leases.retain(|_, deadline| *deadline > now);
+        match request {
+            Request::Begin => {
+                if session.video_leases.len() >= crate::protocol::MAX_TABS {
+                    return Reply::refused(Error::Capacity);
+                }
+                let Ok(lease) = super::token() else {
+                    return Reply::refused(Error::Unavailable);
+                };
+                session.video_leases.insert(
+                    lease.clone(),
+                    now + Duration::from_millis(self.config.lifecycle.recording_lease_ms),
+                );
+                let mut reply = Reply::kept();
+                reply.lease = Some(lease);
+                reply.heartbeat_ms = Some(self.config.lifecycle.recording_heartbeat_ms);
+                reply
+            }
+            Request::Renew { lease } => {
+                let Some(deadline) = session.video_leases.get_mut(&lease) else {
+                    return Reply::refused(Error::Expired);
+                };
+                *deadline = now + Duration::from_millis(self.config.lifecycle.recording_lease_ms);
+                Reply::kept()
+            }
+            Request::Stop { lease } => {
+                session.video_leases.remove(&lease);
+                Reply::kept()
+            }
+        }
+    }
+
     pub(super) fn group_status(
         &self,
         project: &str,
@@ -23,7 +93,7 @@ impl Host {
             GroupPhase::Starting
         } else if session.running {
             GroupPhase::Running
-        } else if session.recording.is_some() || session.capture.is_some() {
+        } else if !session.video_leases.is_empty() || session.capture.is_some() {
             GroupPhase::Recording
         } else {
             GroupPhase::Ready

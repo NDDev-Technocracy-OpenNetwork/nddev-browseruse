@@ -191,6 +191,7 @@
           "owned_sessions",
           "cancellation",
           "drained_close",
+          "recording_leases",
           "group_control",
           "terminal_groups",
           "idle_timeout_ms",
@@ -240,11 +241,13 @@
             "format": "int32",
             "minimum": 0
           },
+          "recording_leases": {
+            "type": "boolean"
+          },
           "terminal_groups": {
             "type": "boolean"
           }
-        },
-        "additionalProperties": false
+        }
       },
       "CaptureFailure": {
         "type": "string",
@@ -763,7 +766,9 @@
           "idleTimeoutMs",
           "sweepIntervalMs",
           "orphanGraceMs",
-          "groupsLimit"
+          "groupsLimit",
+          "recordingHeartbeatMs",
+          "recordingLeaseMs"
         ],
         "properties": {
           "groupsLimit": {
@@ -781,6 +786,18 @@
             "type": "integer",
             "format": "int64",
             "description": "Recovery grace for a durable control tab whose previous host no longer owns it.",
+            "minimum": 0
+          },
+          "recordingHeartbeatMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "An active video renews its reservation at this interval, outside execution requests.",
+            "minimum": 0
+          },
+          "recordingLeaseMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "A lost recording owner cannot keep its session alive beyond this reservation.",
             "minimum": 0
           },
           "sweepIntervalMs": {
@@ -934,6 +951,107 @@
           }
         },
         "additionalProperties": false
+      },
+      "VideoLeaseFailure": {
+        "type": "string",
+        "enum": [
+          "invalid_request",
+          "target_closed",
+          "capacity",
+          "expired",
+          "unavailable"
+        ]
+      },
+      "VideoLeaseReply": {
+        "type": "object",
+        "description": "Session-local operational lease; its opaque ID is never a UI or telemetry field.",
+        "required": [
+          "kept"
+        ],
+        "properties": {
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/VideoLeaseFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "heartbeatMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "kept": {
+            "type": "boolean"
+          },
+          "lease": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "VideoLeaseRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "begin"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lease",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "renew"
+                ]
+              },
+              "lease": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "lease",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "stop"
+                ]
+              },
+              "lease": {
+                "type": "string"
+              }
+            }
+          }
+        ]
       }
     }
   }

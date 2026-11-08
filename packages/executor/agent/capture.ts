@@ -310,7 +310,12 @@ export class Capture {
   }
 
   get recording(): boolean {
-    return !this.finishing;
+    return (
+      !this.finishing &&
+      !this.failure &&
+      this.ffmpeg.exitCode === null &&
+      this.ffmpeg.signalCode === null
+    );
   }
 
   /** Frames come from another page from now on, scaled into the same size. */

@@ -15,6 +15,8 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
                 sweep_interval_ms: 1000,
                 orphan_grace_ms: 10_000,
                 groups_limit: 32,
+                recording_heartbeat_ms: 10000,
+                recording_lease_ms: 30000,
             },
             executor_settings: crate::configuration::ExecutorSettings {
                 execution: nddev_browseruse_contract::ExecutionSettings {
@@ -886,6 +888,7 @@ async fn shutdown_drains_actual_running_executor_without_a_detached_cleanup_task
 #[tokio::test]
 async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_drain() {
     let (host, _queue, _root, handle, pid) = prepared_executor_fixture().await;
+    host.state().sessions.get_mut("project").unwrap().recording = Some(("interrupted".into(), 0));
     let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
     let control = {
         let host = host.clone();
@@ -913,6 +916,7 @@ async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_
         .unwrap()
         .unwrap();
     assert!(!PathBuf::from(format!("/proc/{pid}")).exists());
+    assert!(host.state().sessions["project"].recording.is_none());
     assert!(host.state().sessions["project"].closing);
     assert!(
         host.session_life(handle.project(), Some(handle.generation()))
@@ -1001,21 +1005,139 @@ async fn a_reservation_expires_but_execution_and_recording_protect_their_groups(
             host.config.lifecycle.idle_timeout_ms + 1,
         ))
         .unwrap();
-    for project in ["reserved", "running", "recording"] {
+    for project in ["reserved", "running"] {
         host.create_owned(project).unwrap();
         host.state().sessions.get_mut(project).unwrap().used = long_ago;
     }
     host.state().sessions.get_mut("running").unwrap().running = true;
-    host.state()
-        .sessions
-        .get_mut("recording")
-        .unwrap()
-        .recording = Some(("fixture".into(), 0));
+    let recording = host.create_owned("recording").unwrap();
+    let _client = opened_client(&host, &recording, 1);
+    host.state().sessions.get_mut("recording").unwrap().used = long_ago;
+    host.observe(Observation::Full);
+    let granted = host
+        .capture(
+            "recording",
+            1,
+            &json!({"action": "begin", "id": "fixture", "epoch": host.observation()["epoch"]}),
+        )
+        .await;
+    assert_eq!(granted["kept"], true);
     host.close_idle(Instant::now()).await;
     assert!(!host.state().sessions.contains_key("reserved"));
     assert!(host.state().sessions.contains_key("running"));
     assert!(host.state().sessions.contains_key("recording"));
     assert!(queue.try_recv().is_err());
+    // The host enforces the capture ceiling even when its caller never sends another frame.
+    let future =
+        Instant::now() + Duration::from_millis(host.config.executor_settings.recorder.max_ms + 1);
+    let cleanup = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(future).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["group"], "recording");
+    answer(&host, &release);
+    cleanup.await.unwrap();
+    assert!(!host.state().sessions.contains_key("recording"));
+}
+
+#[tokio::test]
+async fn video_reservations_protect_only_their_live_owner_and_a_late_renew_cannot_revive_them() {
+    let (host, mut queue, _root) = fixture();
+    let handle = host.create_owned("video").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    let other = host.create_owned("other").unwrap();
+    let _other_client = opened_client(&host, &other, 2);
+    let granted = host.video_lease("video", 1, &json!({"action": "begin"}));
+    assert!(granted.kept);
+    assert_eq!(
+        granted.heartbeat_ms,
+        Some(host.config.lifecycle.recording_heartbeat_ms)
+    );
+    let lease = granted.lease.unwrap();
+    assert!(
+        !host
+            .video_lease("other", 2, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host
+            .video_lease("video", 2, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    host.state().sessions.get_mut("video").unwrap().used = Instant::now()
+        .checked_sub(Duration::from_millis(
+            host.config.lifecycle.idle_timeout_ms + 1,
+        ))
+        .unwrap();
+    host.close_idle(Instant::now()).await;
+    assert!(host.state().sessions.contains_key("video"));
+    assert!(queue.try_recv().is_err());
+    assert!(
+        host.video_lease("video", 1, &json!({"action": "stop", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(host.state().sessions["video"].video_leases.is_empty());
+    let cleanup = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(Instant::now()).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["group"], "video");
+    answer(&host, &release);
+    cleanup.await.unwrap();
+    assert!(!host.state().sessions.contains_key("video"));
+}
+
+#[tokio::test]
+async fn recording_reservations_are_bounded_and_expired_ids_are_never_recreated() {
+    let (host, _queue, _root) = fixture();
+    let handle = host.create_owned("video").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    for _ in 0..crate::protocol::MAX_TABS {
+        assert!(
+            host.video_lease("video", 1, &json!({"action": "begin"}))
+                .kept
+        );
+    }
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "begin"}))
+            .kept
+    );
+    let lease = host.state().sessions["video"]
+        .video_leases
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    *host
+        .state()
+        .sessions
+        .get_mut("video")
+        .unwrap()
+        .video_leases
+        .get_mut(&lease)
+        .unwrap() = Instant::now();
+    assert!(
+        !host
+            .video_lease("video", 1, &json!({"action": "renew", "lease": lease}))
+            .kept
+    );
+    assert!(
+        !host.state().sessions["video"]
+            .video_leases
+            .contains_key(&lease)
+    );
+    assert!(
+        host.video_lease("video", 1, &json!({"action": "begin"}))
+            .kept
+    );
 }
 
 #[tokio::test]

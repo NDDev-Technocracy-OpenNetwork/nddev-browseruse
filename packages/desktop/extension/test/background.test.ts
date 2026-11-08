@@ -348,6 +348,8 @@ const fixtureConfig = {
     sweepIntervalMs: 1000,
     orphanGraceMs: 10000,
     groupsLimit: 32,
+    recordingHeartbeatMs: 10000,
+    recordingLeaseMs: 30000,
   },
   consentRevision: 1,
   initialObservation: "standard",
@@ -509,7 +511,7 @@ test("recovery uses the durable control tab after browser group IDs change", asy
   expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
 });
 
-test("upgrade retires idle legacy groups still owned by this browser's session storage", async () => {
+test("worker recovery retires idle legacy groups with a retained session-storage mapping", async () => {
   const browser = new Browser({}, [
     [1, P],
     [2, Q],

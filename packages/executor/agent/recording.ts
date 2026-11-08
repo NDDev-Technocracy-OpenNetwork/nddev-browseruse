@@ -7,7 +7,14 @@
 import { spawn } from "node:child_process";
 import { inspect } from "node:util";
 import type { Page } from "playwright-core";
+import { scope } from "../execution";
+import type { VideoLeaseReply, VideoLeaseRequest } from "../generated/types.gen.js";
 import { Capture, type Clock, fitToAspectRatio } from "./capture";
+import { hostCommand } from "./host";
+
+function lease(request: VideoLeaseRequest): Promise<VideoLeaseReply | undefined> {
+  return hostCommand<VideoLeaseReply>("NDS.videoLease", request);
+}
 
 type Span = { start: number; end: number };
 
@@ -88,18 +95,53 @@ export class RecordingHandle {
   private readonly executions: Span[] = [];
   private readonly timer: ReturnType<typeof setTimeout> | undefined;
   private done: Promise<RecordingResult> | undefined;
+  private readonly heartbeat: ReturnType<typeof setInterval>;
+  private renewing = false;
+  private closing = false;
+  private released = false;
 
   constructor(
     private readonly capture: Capture,
     private readonly ratio: { width: number; height: number } | null | undefined,
     private restore: () => Promise<void>,
     maxDurationMs: number,
+    private readonly reservation: string,
+    heartbeatMs: number,
   ) {
     handles.add(this);
+    // These timers own the recording resource, rather than an agent script's callbacks.
+    this.heartbeat = scope.run(undefined, () => setInterval(() => void this.renew(), heartbeatMs));
     this.timer =
       maxDurationMs > 0
-        ? setTimeout(() => void this.stop().catch(() => {}), maxDurationMs)
+        ? scope.run(undefined, () =>
+            setTimeout(() => void this.stop().catch(() => {}), maxDurationMs),
+          )
         : undefined;
+  }
+
+  private async renew(): Promise<void> {
+    if (this.renewing || this.released) return;
+    if (!this.closing && !this.capture.recording) {
+      await this.cancel().catch(() => {});
+      return;
+    }
+    this.renewing = true;
+    try {
+      const answer = await lease({ action: "renew", lease: this.reservation });
+      if (!answer?.kept && !this.released) await this.cancel();
+    } catch {
+      if (!this.released) await this.cancel().catch(() => {});
+    } finally {
+      this.renewing = false;
+    }
+  }
+
+  private async release(): Promise<void> {
+    if (this.released) return;
+    this.released = true;
+    clearInterval(this.heartbeat);
+    // Stop is idempotent, and a lost answer still leaves a bounded native reservation.
+    await lease({ action: "stop", lease: this.reservation });
   }
 
   get page(): Page {
@@ -150,12 +192,17 @@ export class RecordingHandle {
   stop(): Promise<RecordingResult> {
     this.done ??= (async () => {
       clearTimeout(this.timer);
+      this.closing = true;
       handles.delete(this);
       try {
         const result = await this.capture.stop();
         return { ...result, executionTimestamps: this.clock === "real" ? this.executions : [] };
       } finally {
-        await this.restore();
+        try {
+          await this.restore();
+        } finally {
+          await this.release();
+        }
       }
     })();
     return this.done;
@@ -164,9 +211,17 @@ export class RecordingHandle {
   /** Stops without keeping the file. */
   async cancel(): Promise<void> {
     clearTimeout(this.timer);
+    this.closing = true;
     handles.delete(this);
-    await this.capture.cancel();
-    await this.restore();
+    try {
+      await this.capture.cancel();
+    } finally {
+      try {
+        await this.restore();
+      } finally {
+        await this.release();
+      }
+    }
   }
 
   [inspect.custom](): object {
@@ -190,14 +245,32 @@ async function start({
     throw new Error("this page is already recording");
   }
   const restore = await fitViewport(page, aspectRatio);
+  const reservation = await lease({ action: "begin" });
+  if (!reservation?.kept || !reservation.lease || !reservation.heartbeatMs) {
+    await restore();
+    throw new Error(
+      `video recording lease was refused: ${reservation?.error ?? "host_unavailable"}`,
+    );
+  }
   let capture: Capture;
   try {
     capture = await Capture.start({ page, outputPath, ...options });
   } catch (error) {
-    await restore();
+    try {
+      await restore();
+    } finally {
+      await lease({ action: "stop", lease: reservation.lease });
+    }
     throw error;
   }
-  const handle = new RecordingHandle(capture, aspectRatio, restore, maxDurationMs);
+  const handle = new RecordingHandle(
+    capture,
+    aspectRatio,
+    restore,
+    maxDurationMs,
+    reservation.lease,
+    reservation.heartbeatMs,
+  );
   await ghostCursor.show({ page }).catch(() => {});
   return handle;
 }

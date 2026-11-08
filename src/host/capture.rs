@@ -90,6 +90,25 @@ pub(super) fn revoke(session: &mut Session) {
     session.recording = None;
 }
 
+/// Even a caller that never submits another frame cannot retain an expired capture forever.
+pub(super) fn expire(session: &mut Session, now: Instant, max_ms: u64) {
+    let expired = session
+        .capture
+        .as_ref()
+        .and_then(|capture| match capture.try_lock() {
+            Ok(capture) => Some(capture),
+            Err(std::sync::TryLockError::Poisoned(error)) => Some(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        })
+        .is_some_and(|capture| {
+            !capture.active
+                || now.saturating_duration_since(capture.started).as_millis() >= u128::from(max_ms)
+        });
+    if expired {
+        revoke(session);
+    }
+}
+
 fn directory(root: &Path, requested: Option<&str>, id: &str) -> Option<PathBuf> {
     let path = requested
         .map(PathBuf::from)

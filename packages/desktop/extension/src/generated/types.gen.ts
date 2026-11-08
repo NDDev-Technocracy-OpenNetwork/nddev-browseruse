@@ -75,6 +75,7 @@ export type Capabilities = {
     max_tabs: number;
     owned_sessions: boolean;
     protocol: number;
+    recording_leases: boolean;
     terminal_groups: boolean;
 };
 
@@ -256,6 +257,14 @@ export type LifecycleSettings = {
      */
     orphanGraceMs: number;
     /**
+     * An active video renews its reservation at this interval, outside execution requests.
+     */
+    recordingHeartbeatMs: number;
+    /**
+     * A lost recording owner cannot keep its session alive beyond this reservation.
+     */
+    recordingLeaseMs: number;
+    /**
      * Maximum interval between the host's cleanup passes.
      */
     sweepIntervalMs: number;
@@ -295,4 +304,26 @@ export type RecorderSettings = {
     queuedFrames: number;
     secretCache: number;
     secretTimeoutMs: number;
+};
+
+export type VideoLeaseFailure = 'invalid_request' | 'target_closed' | 'capacity' | 'expired' | 'unavailable';
+
+/**
+ * Session-local operational lease; its opaque ID is never a UI or telemetry field.
+ */
+export type VideoLeaseReply = {
+    error?: VideoLeaseFailure | null;
+    heartbeatMs?: number | null;
+    kept: boolean;
+    lease?: string | null;
+};
+
+export type VideoLeaseRequest = {
+    action: 'begin';
+} | {
+    action: 'renew';
+    lease: string;
+} | {
+    action: 'stop';
+    lease: string;
 };

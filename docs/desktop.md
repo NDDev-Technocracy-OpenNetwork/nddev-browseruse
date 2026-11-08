@@ -40,7 +40,13 @@ its old group while preserving a tab the owner took back.
 Recovery uses a bounded local registry together with a unique service tab, including after
 browser group IDs change. Conflicting or duplicated markers preserve the browser area and refuse
 replacement until ownership is unambiguous. Groups left by older builds without a marker cannot
-be identified safely after a whole-browser restart; a title alone never authorizes deletion.
+be identified safely after extension reload/update or a whole-browser restart clears their old
+session-storage mapping; a title alone never authorizes deletion.
+
+Video recording holds a separate, bounded native reservation. Only a live encoder renews it;
+stopping the recording, losing its executor or missing renewals removes that protection.
+Renewals do not count as agent work or reset the idle countdown. The host also expires a person
+recording's capture at its configured maximum duration even if no more frames arrive.
 
 ## Browsers
 

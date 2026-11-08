@@ -15,7 +15,7 @@ pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
 mod lifecycle;
 pub use lifecycle::{
     GroupDashboard, GroupFailure, GroupIdentity, GroupMetrics, GroupPhase, GroupStatus,
-    LifecycleSettings,
+    LifecycleSettings, VideoLeaseFailure, VideoLeaseReply, VideoLeaseRequest,
 };
 mod native;
 pub use native::{AdbSettings, NativeSettings};
@@ -204,6 +204,8 @@ pub struct OwnerRecent {
         BrowserStatus,
         OwnerRecording,
         OwnerRecent,
+        VideoLeaseRequest,
+        VideoLeaseReply,
         GroupStatus,
         GroupIdentity,
         GroupDashboard,
@@ -244,6 +246,8 @@ idleTimeoutMs = 300000
 sweepIntervalMs = 1000
 orphanGraceMs = 10000
 groupsLimit = 32
+recordingHeartbeatMs = 10000
+recordingLeaseMs = 30000
 [phone_link]
 queueMessages = 8
 browserQueueBytes = 2097152
