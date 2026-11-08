@@ -1851,6 +1851,40 @@ test("raw CDP sessions reach agent tabs, including a virtual authenticator", asy
   expect(result.body.value).toBe("NotAllowedError signed-in 1 event");
 });
 
+test("detaching raw browser CDP sessions releases their children and capacity", async () => {
+  await opened("raw-detach");
+  try {
+    const result = await run(
+      "raw-detach",
+      `const page = await context.newPage(); await page.goto("${origin}/");
+       let detachedChildren = 0;
+       for (let index = 0; index < 70; index++) {
+         const root = await browser.newBrowserCDPSession();
+         const version = await root.send("Browser.getVersion");
+         if (!version.product.startsWith("Chrome/")) throw new Error("raw browser session unavailable");
+         const { targetInfos } = await root.send("Target.getTargets");
+         const owned = targetInfos.filter(target => target.type === "page");
+         if (owned.length !== 1) throw new Error("expected one owned target");
+         const [target] = owned;
+         const { sessionId } = await root.send("Target.attachToTarget", { targetId: target.targetId, flatten: true });
+         root.on("Target.detachedFromTarget", event => { if (event.sessionId === sessionId) detachedChildren++; });
+         await root.detach();
+         let refused = false;
+         try { await root.send("Browser.getVersion"); }
+         catch { refused = true; }
+         if (!refused) throw new Error("closed browser session accepted a command");
+       }
+       return [detachedChildren, await page.title(), page.isClosed()].join(" ")`,
+      "--timeout",
+      "20000",
+    );
+    expect(result.body).toMatchObject({ failure: null, value: "70 Fixture false" });
+    expect(result.code).toBe(0);
+  } finally {
+    await cli("session", "close", "raw-detach");
+  }
+});
+
 test("a raw CDP session that enables Runtime learns the page's contexts", async () => {
   // Playwright enabled Runtime on the tab first; a later session must still be told the contexts.
   await opened("runtime");

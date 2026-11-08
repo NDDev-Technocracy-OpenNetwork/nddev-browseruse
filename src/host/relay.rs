@@ -9,6 +9,7 @@ use crate::{CancellationToken, socket};
 use futures_util::{Sink, SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
+    collections::HashMap,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -105,6 +106,33 @@ fn detached_event(session: &str, target: &str, parent: &str) -> Value {
         "params": { "sessionId": session, "targetId": target },
         "sessionId": parent,
     })
+}
+
+/// Removes a raw session's subtree, children first; unrelated browser roots stay live.
+fn take_alias_tree(
+    aliases: &mut HashMap<String, Alias>,
+    root: &str,
+) -> Option<Vec<(String, Alias)>> {
+    let alias = aliases.remove(root)?;
+    let mut removed = vec![(root.to_owned(), alias)];
+    let mut index = 0;
+    while index < removed.len() {
+        let children: Vec<String> = aliases
+            .iter()
+            .filter_map(|(id, alias)| match alias {
+                Alias::Tab { parent, .. } if parent == &removed[index].0 => Some(id.clone()),
+                _ => None,
+            })
+            .collect();
+        for id in children {
+            if let Some(alias) = aliases.remove(&id) {
+                removed.push((id, alias));
+            }
+        }
+        index += 1;
+    }
+    removed.reverse();
+    Some(removed)
 }
 
 /// Whether the client asked for download events. `chrome.debugger` reaches no Browser domain, and
@@ -467,22 +495,25 @@ impl Host {
             "Target.detachFromTarget" => {
                 let alias = params["sessionId"].as_str().unwrap_or_default();
                 let mut state = self.state();
-                let session = state.sessions.get_mut(project);
-                let removed = session.and_then(|session| match session.aliases.get(alias) {
-                    Some(Alias::Tab { tab, parent }) => {
-                        let found = (*tab, parent.clone());
-                        session.aliases.remove(alias);
-                        Some(found)
-                    }
-                    _ => None,
-                });
-                let (tab, parent) = removed.ok_or_else(not_found)?;
-                let target = state
-                    .tabs
-                    .get(&tab)
-                    .map(|entry| entry.target.clone())
-                    .unwrap_or_default();
-                super::deliver(&mut state, project, detached_event(alias, &target, &parent));
+                let removed = state
+                    .sessions
+                    .get_mut(project)
+                    .and_then(|session| take_alias_tree(&mut session.aliases, alias))
+                    .ok_or_else(not_found)?;
+                for (id, alias) in removed {
+                    let (target, parent) = match alias {
+                        Alias::Browser => (BROWSER_TARGET.to_owned(), String::new()),
+                        Alias::Tab { tab, parent } => (
+                            state
+                                .tabs
+                                .get(&tab)
+                                .map(|entry| entry.target.clone())
+                                .unwrap_or_default(),
+                            parent,
+                        ),
+                    };
+                    super::deliver(&mut state, project, detached_event(&id, &target, &parent));
+                }
                 Ok(json!({}))
             }
             "Browser.getVersion" => {
@@ -785,5 +816,45 @@ mod tests {
         let remaining: Vec<&String> = state.sessions["nds"].aliases.keys().collect();
         assert_eq!(remaining.len(), 2);
         assert!(close_aliases(&mut state, "other", 8, "TARGET").is_empty());
+    }
+
+    #[test]
+    fn detaching_a_browser_root_preserves_the_other_raw_tree() {
+        let mut aliases = HashMap::from([
+            ("root".to_owned(), Alias::Browser),
+            ("other".to_owned(), Alias::Browser),
+            (
+                "child".to_owned(),
+                Alias::Tab {
+                    tab: 7,
+                    parent: "root".to_owned(),
+                },
+            ),
+            (
+                "nested".to_owned(),
+                Alias::Tab {
+                    tab: 8,
+                    parent: "child".to_owned(),
+                },
+            ),
+            (
+                "retained".to_owned(),
+                Alias::Tab {
+                    tab: 9,
+                    parent: "other".to_owned(),
+                },
+            ),
+        ]);
+        assert!(take_alias_tree(&mut aliases, "unknown").is_none());
+        assert_eq!(aliases.len(), 5);
+        let removed = take_alias_tree(&mut aliases, "root").unwrap();
+        let ids: Vec<&str> = removed.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, ["nested", "child", "root"]);
+        assert_eq!(aliases.len(), 2);
+        assert!(matches!(aliases["other"], Alias::Browser));
+        assert!(matches!(aliases["retained"], Alias::Tab { tab: 9, .. }));
+        assert!(take_alias_tree(&mut aliases, "root").is_none());
+        assert_eq!(take_alias_tree(&mut aliases, "other").unwrap().len(), 2);
+        assert!(aliases.is_empty());
     }
 }
