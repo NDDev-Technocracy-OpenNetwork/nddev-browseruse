@@ -410,8 +410,10 @@ Use these only when locators cannot express the action.
 - **Snapshot first.** Take a snapshot before a screenshot; use a screenshot only for visual or
   spatial questions.
 - **Absolute paths.** Write to an absolute path in `artifacts`.
-- **Hiding your own marks.** Pass `style: "::-webkit-scrollbar { display: none }"` to
-  `page.screenshot` to hide scrollbars.
+- **Default capture.** The extension hides its cursor, caret and scrollbars through a temporary
+  browser stylesheet where Chrome permits it. Use `page.screenshot()` without a `style` option.
+  An explicit Playwright `style` override injects a document stylesheet and can be rejected by
+  the site's CSP. Do not weaken that policy or attribute the resulting warning to the site.
 - **Reading a screenshot.** Make a smaller copy with `resizeImageForAgent` first.
 
 ## Rules
