@@ -24,6 +24,11 @@ configuration, session artifacts and any activity journal separately.
 
 ## Observation and storage
 
+New installations and upgrades requiring renewed disclosure keep effective observation
+Off and agent control paused until you choose. The requested initial profile is Standard.
+Previously saved choices and private sites are preserved; an incompatible or missing
+host cannot enable collection.
+
 - **Full** keeps a local activity journal: execution code and results, browser
   actions, navigations, selected network metadata and textual bodies, warnings,
   errors, dialogs and downloads. Recognized credentials and secret fields are
@@ -98,6 +103,11 @@ DOM, адреса, сетевую активность и сообщения к�
 сайтов и групп. Хост отдельно хранит конфигурацию, артефакты и журнал активности.
 
 ## Наблюдение и хранение
+
+При новой установке и обновлении с повторным согласием управление и фактический сбор
+приостановлены до вашего выбора. Начальный запрошенный профиль — «Стандарт».
+Сохранённые настройки и приватные сайты сохраняются; несовместимый или отсутствующий
+хост не может включить сбор.
 
 - **Полное** сохраняет локальный журнал: код и результаты выполнения, действия,
   переходы, выбранные сетевые данные и текстовые тела, предупреждения, ошибки,

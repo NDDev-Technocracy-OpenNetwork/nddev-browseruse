@@ -4,7 +4,8 @@
     "packages/desktop/extension/src/{background,popup,restore}.ts",
     "packages/executor/executor.ts",
     "packages/**/test/**/*.test.ts",
-    "e2e/**/*.test.ts"
+    "e2e/**/*.test.ts",
+    "e2e/render-store.ts"
   ],
   "project": [
     "packages/**/*.ts",

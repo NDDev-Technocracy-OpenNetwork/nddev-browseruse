@@ -13,6 +13,7 @@
   },
   "files": [
     "e2e/browser.test.ts",
-    "e2e/phone.test.ts"
+    "e2e/phone.test.ts",
+    "e2e/render-store.ts"
   ]
 }

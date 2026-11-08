@@ -56,3 +56,8 @@ stage output:
 [group('browser')]
 package-store output:
     {{ tools }} package-store {{ quote(output) }}
+
+# Renders store assets from authentic isolated popup captures, without registering a browser.
+[group('browser')]
+store-materials captures output:
+    {{ tools }} store-materials {{ quote(captures) }} {{ quote(output) }}

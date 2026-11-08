@@ -149,3 +149,11 @@ A partial directory retains INCOMPLETE.txt. A completed packet still has
 `qualified: false` until its acceptance evidence, store copy and owner-browser
 checks are complete. Edge's future assigned extension ID needs explicit native
 admission and browser acceptance before its listing can become operational.
+
+`just store-materials /absolute/isolated-captures /absolute/new/materials` prepares
+five localized listings, permission/privacy/reviewer field copy, 1280×800 actual-popup
+compositions, 440×280 promos, optional 1400×560 marquees and 128/300 px logos. Captures
+come from `NDS_E2E_SHOTS` on an isolated browser acceptance run. Rust owns the input
+bounds, copy, provenance and output hashes; a thin sandboxed browser renderer uses the
+canonical DS/font package and does not load network resources. Inspect the PNGs before
+marking the packet reviewed. Store acceptance remains each store's decision.

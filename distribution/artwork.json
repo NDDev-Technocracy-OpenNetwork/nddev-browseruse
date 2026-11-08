@@ -1,0 +1,37 @@
+{
+  "en": {
+    "control": "Tab groups you control",
+    "observation": "Choose what you retain",
+    "host": "Requires the local native host",
+    "detail": "Your agents. Your shared tabs. Your controls.",
+    "consent": "Full, Standard or Off. Your choice before collection."
+  },
+  "ru": {
+    "control": "Вкладки под вашим управлением",
+    "observation": "Выберите, что сохранять",
+    "host": "Требуется локальный хост",
+    "detail": "Ваши агенты. Переданные вкладки. Ваши настройки.",
+    "consent": "Полное, Стандарт или Выкл. Выбор до начала сбора."
+  },
+  "kk": {
+    "control": "Сіз басқаратын қойындылар",
+    "observation": "Не сақталатынын таңдаңыз",
+    "host": "Жергілікті хост қажет",
+    "detail": "Сіздің агенттеріңіз. Ортақ қойындылар. Сіздің басқаруыңыз.",
+    "consent": "Толық, Стандартты немесе Өшірулі. Жинау басталғанға дейін таңдаңыз."
+  },
+  "ar": {
+    "control": "علامات تبويب تتحكم بها",
+    "observation": "اختر ما يتم الاحتفاظ به",
+    "host": "يتطلب مضيفًا محليًا",
+    "detail": "وكلاؤك. علامات التبويب التي تشاركها. عناصر تحكمك.",
+    "consent": "كامل أو قياسي أو إيقاف. اختر قبل بدء الجمع."
+  },
+  "zh-CN": {
+    "control": "由你掌控的标签页",
+    "observation": "选择要保留的内容",
+    "host": "需要本机主机程序",
+    "detail": "你的智能体。你共享的标签页。你的控制权。",
+    "consent": "完整、标准或关闭。收集前由你选择。"
+  }
+}

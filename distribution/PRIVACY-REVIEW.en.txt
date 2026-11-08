@@ -1,0 +1,47 @@
+Review field copy for the candidate; apply the current dashboard wording accurately.
+
+The product handles data even though it has no automatic vendor analytics/export.
+Declare Website content, Web history/browsing activity (only shared tabs), and User
+activity. User-selected pages and returned results may also contain personally
+identifiable, authentication, financial, health, communications and location data.
+Disclose these applicable categories conservatively in each store: the product
+cannot guarantee their absence from an arbitrary user-shared page or task artifact.
+It does not request an OS location API or maintain a separate identity/ad profile.
+
+Data path
+The browser sends owned-tab URLs, DOM/text, selected network data, actions, screenshots,
+console/dialog and download information to its local native host and requesting
+agent. Explicit owner-configured remote-device transport returns results/artifacts
+to its caller. If that agent uses an online AI provider, its provider policy applies.
+Do not claim that all data always stays on one device or that no user data is handled.
+
+Retention and controls
+New/renewed disclosure pauses agent access and effective observation until a choice.
+The initial requested profile is Standard; saved access/profile/private choices are
+preserved. A compatible host is required. Full keeps a bounded, redacted local
+activity journal; Standard keeps metadata without page-content fields; Off invalidates
+pending collection. Existing saved files are not erased by Off. Journals have bounded
+retention; session artifacts are removed on session close. Host state is separate from
+browser preferences and is not removed just by uninstalling the extension.
+
+Workflow recording requires Full and an explicit start. Off, Standard, private-site
+changes or session close revoke it. Full does not resume an old recording. Textual
+redaction does not mask image pixels; a private frame tree causes the image to be
+omitted. Separate explicit screenshots/video/downloads remain task artifacts with
+their own lifecycle, and can contain sensitive content.
+
+NDS
+The standalone code includes no NDS telemetry SDK or automatic central exporter.
+An embedding adapter must supply its own consent, policy and transport. An account
+is not required. Do not advertise a completed NDS module or receipt by a collector.
+
+Limited use
+Use browser data solely for the user's requested automation and local observation.
+No data sale, advertising or unrelated analytics is implemented. No human vendor
+review of page data is part of the product. Do not promise what a separately chosen
+agent/model provider does: its own disclosures apply. Certify dashboard limited-use
+statements only where they match the actual selected distribution and privacy policy.
+
+Public privacy policy, support and install links are in URLS.json. Verify they resolve
+to the accepted candidate before submitting. The owner uploads; no store submission
+has been made by the packaging workflow.

@@ -17,6 +17,7 @@ mod design;
 mod licenses;
 mod native_licenses;
 mod store;
+mod store_materials;
 
 fn main() -> ExitCode {
     match execute() {
@@ -81,6 +82,15 @@ fn execute() -> Result {
                 .nth(2)
                 .ok_or("package-store requires an absolute new output directory")?;
             store::package(Path::new(&output))
+        }
+        "store-materials" => {
+            let captures = std::env::args()
+                .nth(2)
+                .ok_or("store-materials requires captures")?;
+            let output = std::env::args()
+                .nth(3)
+                .ok_or("store-materials requires a new output directory")?;
+            store_materials::prepare(Path::new(&captures), Path::new(&output))
         }
         "stage" => {
             let output = std::env::args()
