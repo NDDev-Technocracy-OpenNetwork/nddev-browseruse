@@ -52,6 +52,12 @@ and confirms that its unverified value and snapshot are omitted. The three focus
 scenarios also passed against the same staged Linux packet. This changed tests and documentation,
 not the runtime's privacy policy or its classification deadline.
 
+Dependency update configuration now covers the Rust workspace and both Bun manifests as well
+as GitHub Actions, with daily proposals after three days and no automatic branch rebasing.
+The existing daily shared security scan remains separate. A strict-mode diagnostic fixture now
+initializes the locator engine and uses a bounded diagnostic budget before checking the complete
+three-match error; it is not a latency assertion. These changes do not alter product runtime files.
+
 Official sources reviewed include Chrome's storage and tabGroups contracts, React createRoot,
 Node's AsyncLocalStorage, nextest's test runner/documentation-test boundary, and Chrome/Edge store
 requirements. Context history from available harnesses informed provenance; incomplete indexes

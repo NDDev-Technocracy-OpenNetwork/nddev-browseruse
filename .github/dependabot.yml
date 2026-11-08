@@ -1,17 +1,46 @@
-# One grouped pull request into dev for every GitHub Actions update; the 7-day cooldown keeps
-# brand-new releases out until they have settled (STD-0004 R-0003 update channel).
+# Version proposals wait three days and target dev; acceptance still requires qualified pins.
+# Daily security scanning remains in workflows/security.yml.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     target-branch: dev
+    rebase-strategy: disabled
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
-      default-days: 7
+      default-days: 3
     open-pull-requests-limit: 1
     groups:
       actions:
         patterns: ['*']
     commit-message:
       prefix: ci
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: dev
+    rebase-strategy: disabled
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 1
+    groups:
+      rust:
+        patterns: ['*']
+    commit-message:
+      prefix: build
+  - package-ecosystem: bun
+    directories: ['/', '/tools/codegen']
+    target-branch: dev
+    rebase-strategy: disabled
+    schedule:
+      interval: daily
+    cooldown:
+      default-days: 3
+    open-pull-requests-limit: 1
+    groups:
+      javascript:
+        patterns: ['*']
+    commit-message:
+      prefix: build
