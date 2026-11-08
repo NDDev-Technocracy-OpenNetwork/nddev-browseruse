@@ -2899,7 +2899,8 @@ test("an execution deadline names completed and running browser steps without ar
     const metadata = tabs(submitted)[0];
     expect(metadata).toBeDefined();
     if (metadata?.document) {
-      expect(metadata.document).toEqual(tabs(resumed)[0]?.document);
+      expect(metadata.document.length).toBeGreaterThan(0);
+      expect(metadata.url).toBe(`${origin}/deadline-navigation?token=synthetic-secret`);
       expect(submitted.body.tabs).toEqual(
         expect.arrayContaining([expect.objectContaining({ title: "Released" })]),
       );

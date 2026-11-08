@@ -191,7 +191,7 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
     fs::write(
         output.join("PROVENANCE.json"),
         serde_json::to_vec_pretty(
-            &json!({"source":commit,"version":product_version()?,"inputCaptures":input_hashes,"designSystem":serde_json::from_slice::<Value>(&fs::read("design-system.lock.json")?)?,"render":"isolated sandboxed Chromium; actual popup captures, no owner data","reviewed":false,"uploaded":false}),
+            &json!({"source":commit,"version":product_version()?,"inputCaptures":input_hashes,"designSystem":serde_json::from_slice::<Value>(&fs::read("design-system.lock.json")?)?,"render":"isolated sandboxed Chromium; actual popup captures, no owner data","review":"recorded in the release receipt","uploaded":false}),
         )?,
     )?;
     fs::remove_file(output.join("INCOMPLETE.txt"))?;

@@ -439,13 +439,13 @@ fn stage(output: &Path, profile: &str) -> Result {
         serde_json::to_vec_pretty(&serde_json::json!({
             "product": "nddev-browseruse", "version": compiled.version, "source": compiled.commit,
             "executorRuntime": runtime,
-            "profile": profile, "qualified": false, "nativeHostRegistered": false
+            "profile": profile, "qualification": "recorded in the release receipt", "nativeHostRegistered": false
         }))?,
     )?;
     fs::write(
         output.join("INSTALL.txt"),
         format!(
-            "Candidate only. Review CANDIDATE.json and bin/nddev-browseruse --version. Complete existing agent sessions before changing the installation.\nLoading extension/ as an unpacked extension is the owner's action. Native-host registration is separate: run bin/nddev-browseruse install with the absolute installed {runtime} path, this directory's executor/executor.ts path and the chosen --browser.\nBun is an external prerequisite; its binary is not redistributed here. The bundled agent skill is under skills/nddev-browseruse; it does not replace global skills automatically.\nThe source NOTICE refers to packages/executor and packages/desktop/extension; this distribution maps them to executor and extension. Rust license texts are in licenses/rust and licenses/rust-toolchain; npm and DS/font notices accompany their packages.\nStaging does not change a browser profile, settings or native-host registration.\n"
+            "Build packet. Compare CANDIDATE.json and bin/nddev-browseruse --version with the release qualification receipt. Complete existing agent sessions before changing the installation.\nLoading extension/ as an unpacked extension is the owner's action. Native-host registration is separate: run bin/nddev-browseruse install with the absolute installed {runtime} path, this directory's executor/executor.ts path and the chosen --browser.\nBun is an external prerequisite; its binary is not redistributed here. The bundled agent skill is under skills/nddev-browseruse; it does not replace global skills automatically.\nThe source NOTICE refers to packages/executor and packages/desktop/extension; this distribution maps them to executor and extension. Rust license texts are in licenses/rust and licenses/rust-toolchain; npm and DS/font notices accompany their packages.\nStaging does not change a browser profile, settings or native-host registration.\n"
         ),
     )?;
     fs::remove_file(output.join("INCOMPLETE.txt"))?;
