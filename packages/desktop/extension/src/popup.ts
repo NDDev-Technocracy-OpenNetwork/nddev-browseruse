@@ -2,87 +2,26 @@
 // recorder, keeping its site private), the agent's newest steps there, what agent activity is
 // collected, and the private sites. The worker applies and reports all of it; this page only shows
 // it, in the owner's language.
-import i18next from "i18next";
-import ICU from "i18next-icu";
+
 import type {
   BrowserStatus,
   FrontendConfig,
   Observation,
   OwnerRecording,
 } from "./generated/types.gen.js";
+import { loadLanguage, selectLanguage, t } from "./ui.js";
 
 type Status = Partial<BrowserStatus> & Pick<BrowserStatus, "enabled" | "connected">;
 type Recording = OwnerRecording;
-type Language = "en" | "ru" | "kk" | "ar" | "zh-CN";
-type Messages = Record<string, { message: string }>;
-const LANGUAGES: readonly Language[] = ["en", "ru", "kk", "ar", "zh-CN"];
-const translations = i18next.createInstance().use(ICU);
 let config: FrontendConfig;
 
 // A popup opened as a page of its own, as in tests, names the tab it acts for.
 const forTab = Number(new URLSearchParams(location.search).get("tab")) || undefined;
-const LANGUAGE = "popupLanguage";
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
 
-let language: Language = "en";
-let messages: Messages = {};
 let last: Status | undefined;
 let lastRecording: Recording = {};
 let lastSteps: { lines?: string[]; error?: string } = {};
-
-function t(key: string, ...values: (string | number)[]): string {
-  return String(
-    translations.t(key, Object.fromEntries(values.map((value, index) => [`v${index + 1}`, value]))),
-  );
-}
-
-async function loadLanguage(): Promise<void> {
-  const stored = await chrome.storage.local
-    .get(LANGUAGE)
-    .then((values) => values[LANGUAGE] as unknown)
-    .catch(() => undefined);
-  const ui = chrome.i18n.getUILanguage().toLowerCase();
-  const wanted =
-    LANGUAGES.find((locale) => locale === stored) ??
-    LANGUAGES.find(
-      (locale) => ui === locale.toLowerCase() || ui.startsWith(`${locale.toLowerCase()}-`),
-    ) ??
-    (ui.startsWith("zh") ? "zh-CN" : "en");
-  language = wanted;
-  messages = (await fetch(
-    chrome.runtime.getURL(`_locales/${language.replace("-", "_")}/messages.json`),
-  ).then((response) => response.json())) as Messages;
-  const dictionary = Object.fromEntries(
-    Object.entries(messages).map(([key, value]) => [key, value.message]),
-  );
-  if (!translations.isInitialized)
-    await translations.init({
-      lng: language,
-      fallbackLng: "en",
-      resources: { [language]: { translation: dictionary } },
-      interpolation: { escapeValue: false },
-    });
-  else {
-    translations.addResourceBundle(language, "translation", dictionary, true, true);
-    await translations.changeLanguage(language);
-  }
-  document.documentElement.lang = language;
-  document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
-  document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-  document.title = t("title");
-  const legal = element<HTMLAnchorElement>("licenses-link");
-  if (legal) legal.href = chrome.runtime.getURL(`licenses/${language}.html`);
-  for (const node of document.querySelectorAll<HTMLElement>("[data-i18n]")) {
-    node.textContent = t(node.dataset.i18n ?? "");
-  }
-  for (const node of document.querySelectorAll<HTMLElement>("[data-i18n-aria]"))
-    node.setAttribute("aria-label", t(node.dataset.i18nAria ?? ""));
-  for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-language]")) {
-    button.setAttribute("aria-pressed", String(button.dataset.language === language));
-  }
-}
 
 function onClick(button: HTMLButtonElement, work: () => Promise<void>): void {
   button.addEventListener("click", () => {
@@ -101,8 +40,7 @@ function onClick(button: HTMLButtonElement, work: () => Promise<void>): void {
 
 for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-language]")) {
   onClick(button, async () => {
-    await chrome.storage.local.set({ [LANGUAGE]: button.dataset.language }).catch(() => undefined);
-    await loadLanguage();
+    await selectLanguage(button.dataset.language);
     render();
   });
 }

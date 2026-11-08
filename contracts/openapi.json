@@ -417,6 +417,7 @@
         "type": "object",
         "description": "Public, non-secret settings shipped with this extension. Changes take effect at worker restart.",
         "required": [
+          "lifecycle",
           "minimumHost",
           "consentRevision",
           "initialObservation",
@@ -468,6 +469,9 @@
           "installUrl": {
             "type": "string"
           },
+          "lifecycle": {
+            "$ref": "#/components/schemas/LifecycleSettings"
+          },
           "minimumHost": {
             "type": "string",
             "description": "Minimum native host version that enforces observation revocation."
@@ -509,6 +513,215 @@
             "type": "integer",
             "format": "int32",
             "description": "Milliseconds for one browser setup command, per command.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroupDashboard": {
+        "type": "object",
+        "required": [
+          "connected",
+          "observation"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GroupFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "identity": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GroupIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "observation": {
+            "$ref": "#/components/schemas/Observation"
+          },
+          "status": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GroupStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroupFailure": {
+        "type": "string",
+        "enum": [
+          "unavailable",
+          "request_failed",
+          "ownership_conflict"
+        ]
+      },
+      "GroupIdentity": {
+        "type": "object",
+        "description": "Browser-local recovery identity, never a native session capability or a grant to execute code.",
+        "required": [
+          "id",
+          "project",
+          "createdAtMs"
+        ],
+        "properties": {
+          "createdAtMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroupMetrics": {
+        "type": "object",
+        "description": "Bounded aggregate counters. No operation arguments or page-content fields are retained here.",
+        "required": [
+          "completed",
+          "failed",
+          "totalMs"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lastMs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "totalMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "GroupPhase": {
+        "type": "string",
+        "enum": [
+          "starting",
+          "ready",
+          "running",
+          "recording",
+          "closing"
+        ]
+      },
+      "GroupStatus": {
+        "type": "object",
+        "description": "Owner-only operational projection. It contains no session capability or execution code.",
+        "required": [
+          "project",
+          "phase",
+          "uptimeMs",
+          "idleMs",
+          "idleTimeoutMs",
+          "siteTabs"
+        ],
+        "properties": {
+          "idleMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "idleTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "metrics": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/GroupMetrics",
+                "description": "Absent while observation is Off. Revocation discards the aggregate history."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/GroupPhase"
+          },
+          "project": {
+            "type": "string"
+          },
+          "siteTabs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "uptimeMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LifecycleSettings": {
+        "type": "object",
+        "description": "Per-host and per-browser cleanup limits. New host/worker instances read them once.",
+        "required": [
+          "idleTimeoutMs",
+          "sweepIntervalMs",
+          "orphanGraceMs",
+          "groupsLimit"
+        ],
+        "properties": {
+          "groupsLimit": {
+            "type": "integer",
+            "description": "Durable group records in one browser profile, including groups awaiting cleanup.",
+            "minimum": 0
+          },
+          "idleTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Inactivity deadline per session. Executions and explicit recording suspend expiry.",
+            "minimum": 0
+          },
+          "orphanGraceMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Recovery grace for a durable control tab whose previous host no longer owns it.",
+            "minimum": 0
+          },
+          "sweepIntervalMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Maximum interval between the host's cleanup passes.",
             "minimum": 0
           }
         },

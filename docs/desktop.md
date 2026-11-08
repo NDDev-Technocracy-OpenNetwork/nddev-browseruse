@@ -26,6 +26,22 @@ inside the tab groups that the owner grants them. Phones are described in [mobil
 - **Owner actions.** The owner hands a tab to an agent by moving it into the agent's group, and
   pins an element with the context menu.
 
+Every agent group contains an owner service tab. It shows the group's state, uptime, site-tab
+count, inactivity countdown and aggregate execution counts/durations. Off discards and hides
+the analytics. The service tab is excluded from agent browser targets. Its controls end the
+group either by closing its pages or by keeping them as ordinary ungrouped owner tabs.
+
+Explicit session close removes the service tab and the group's pages. `--keep-tabs` retains and
+ungroups the pages. An abandoned session expires after five minutes without work; a running
+execution or active recording suspends that lease. Merely looking at analytics does not renew it.
+Losing the native host also ends its groups. Closing, moving or navigating the service tab ends
+its old group while preserving a tab the owner took back.
+
+Recovery uses a bounded local registry together with a unique service tab, including after
+browser group IDs change. Conflicting or duplicated markers preserve the browser area and refuse
+replacement until ownership is unambiguous. Groups left by older builds without a marker cannot
+be identified safely after a whole-browser restart; a title alone never authorizes deletion.
+
 ## Browsers
 
 `install --browser` registers the host for one browser's user profile root:

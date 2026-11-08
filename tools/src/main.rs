@@ -484,6 +484,7 @@ fn emit_browser(output: &str) -> Result {
         &[
             "build",
             "packages/desktop/extension/src/popup.ts",
+            "packages/desktop/extension/src/group.ts",
             "--target",
             "browser",
             "--minify",

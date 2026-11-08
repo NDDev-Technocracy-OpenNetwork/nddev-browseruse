@@ -160,30 +160,35 @@ fn configure_in(directory: &Path, values: &NativeOverrides) -> Result<(), IoErro
         toml::from_str(&original).map_err(|_| IoError::InvalidConfiguration)?;
     let selected: toml::Value =
         toml::from_str(&profile).map_err(|_| IoError::InvalidConfiguration)?;
-    let has_execution = |source: &toml::Value| {
-        source
-            .get("executor")
-            .and_then(|value| value.get("execution"))
-            .is_some()
-    };
-    // This newly introduced section gets the declared defaults once. Existing operator values
-    // and malformed sections are never replaced; validate the whole composition before writing.
-    let migrated = !has_execution(&common) && !has_execution(&selected);
-    if migrated {
-        let defaults: toml::Value = toml::from_str(include_str!("../config/common.toml"))
-            .map_err(|_| IoError::InvalidConfiguration)?;
-        let defaults = defaults
-            .get("executor")
-            .and_then(|value| value.get("execution"))
+    // Introduced sections receive their declared defaults only when neither source owns them.
+    // Existing values and malformed/incomplete sections are validated, never replaced.
+    let defaults: toml::Value = toml::from_str(include_str!("../config/common.toml"))
+        .map_err(|_| IoError::InvalidConfiguration)?;
+    let mut migrated = false;
+    for (owner, section) in [("executor", "execution"), ("public", "lifecycle")] {
+        let contains = |source: &toml::Value| {
+            source
+                .get(owner)
+                .and_then(|value| value.get(section))
+                .is_some()
+        };
+        if contains(&common) || contains(&selected) {
+            continue;
+        }
+        let value = defaults
+            .get(owner)
+            .and_then(|value| value.get(section))
             .ok_or(IoError::InvalidConfiguration)?
             .clone();
-        let table = common.as_table_mut().ok_or(IoError::InvalidConfiguration)?;
-        table
-            .entry("executor")
+        common
+            .as_table_mut()
+            .ok_or(IoError::InvalidConfiguration)?
+            .entry(owner)
             .or_insert_with(|| toml::Value::Table(Default::default()))
             .as_table_mut()
             .ok_or(IoError::InvalidConfiguration)?
-            .insert("execution".into(), defaults);
+            .insert(section.into(), value);
+        migrated = true;
     }
     for (name, value) in [
         ("runtimeDirectory", &values.runtime_directory),
@@ -311,10 +316,11 @@ mod tests {
     }
 
     #[test]
-    fn introducing_execution_budgets_preserves_older_operator_values() {
+    fn introducing_lifecycle_and_execution_budgets_preserves_older_operator_values() {
         let directory = private_fixture();
         let mut old: toml::Value = toml::from_str(include_str!("../config/common.toml")).unwrap();
         old["executor"].as_table_mut().unwrap().remove("execution");
+        old["public"].as_table_mut().unwrap().remove("lifecycle");
         old["executor"]["recorder"]["frameIntervalMs"] = 1500.into();
         old["native"]["defaultDevice"] = "pc".into();
         std::fs::write(
@@ -326,6 +332,7 @@ mod tests {
         let settings = read(directory.path()).unwrap();
         assert_eq!(settings.native.default_device, "pc");
         assert_eq!(settings.executor.recorder.frame_interval_ms, 1500);
+        assert_eq!(settings.public.lifecycle.idle_timeout_ms, 300_000);
         let declared = Settings::parse(include_str!("../config/common.toml"), "").unwrap();
         assert_eq!(
             settings.executor.execution.pending_steps,

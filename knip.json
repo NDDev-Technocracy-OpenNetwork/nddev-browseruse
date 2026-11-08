@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "packages/desktop/extension/src/{background,popup,restore,legal}.ts",
+    "packages/desktop/extension/src/{background,popup,group,restore,legal}.ts",
     "packages/executor/executor.ts",
     "packages/**/test/**/*.test.ts",
     "e2e/**/*.test.ts",

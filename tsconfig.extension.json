@@ -14,6 +14,7 @@
   "files": [
     "packages/desktop/extension/src/background.ts",
     "packages/desktop/extension/src/popup.ts",
+    "packages/desktop/extension/src/group.ts",
     "packages/desktop/extension/src/restore.ts",
     "packages/desktop/extension/src/legal.ts"
   ]

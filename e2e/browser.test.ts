@@ -3120,8 +3120,7 @@ test.skipIf(windows)(
   60000,
 );
 
-// An execution that times out while its page waits on a long CDP call leaves that call to Chrome.
-// Once the extension's deadline for the call passed, the session still closes and opens again.
+// Closing ends browser authority even while Chrome is still answering an abandoned command.
 test("a session whose execution timed out during a long wait closes and opens again", async () => {
   await opened("waiting");
   try {
@@ -3132,8 +3131,6 @@ test("a session whose execution timed out during a long wait closes and opens ag
       "3000",
     );
     expect(waited.body.failure).toBe("aborted");
-    // The extension answers or drops the abandoned call within its 30 s reply deadline.
-    await Bun.sleep(32_000);
     expect((await cli("session", "close", "waiting", "--close-tabs")).code).toBe(0);
     expect((await cli("session", "new", "waiting")).code).toBe(0);
     expect((await cli("session", "close", "waiting", "--close-tabs")).code).toBe(0);
@@ -3143,6 +3140,50 @@ test("a session whose execution timed out during a long wait closes and opens ag
   }
 }, 60_000);
 
+test("the group control tab shows local analytics and hands retained pages back to the owner", async () => {
+  await opened("dashboard");
+  try {
+    const ran = await run(
+      "dashboard",
+      `const page = await context.newPage(); await page.goto("${origin}/?dashboard"); return context.pages().map(page => page.url())`,
+    );
+    expect(ran.body.value).not.toContain("group.html");
+    const control = observer
+      .pages()
+      .find((page) => page.url().startsWith(`chrome-extension://${extensionId}/group.html#`));
+    // Other active groups also have control tabs: select this one by its authoritative projection.
+    let dashboard: Page | undefined;
+    for (const page of observer.pages().filter((page) => page.url().includes("/group.html#"))) {
+      await page.waitForSelector("#workspace-title");
+      if ((await page.locator("#workspace-title").textContent()) === "dashboard") dashboard = page;
+    }
+    expect(control).toBeDefined();
+    if (!dashboard) throw new Error("group control page missing");
+    await dashboard.waitForFunction(
+      () => Number(document.getElementById("operations")?.textContent) >= 1,
+    );
+    expect(await dashboard.locator("#tabs").textContent()).toBe("1");
+    await observation("off");
+    await dashboard.waitForFunction(() => document.getElementById("metrics")?.hidden === true);
+    await observation("full");
+    await dashboard.waitForFunction(
+      () => document.getElementById("operations")?.textContent === "0",
+    );
+    const retained = await observed("/?dashboard");
+    expect(retained).toBeDefined();
+    await dashboard.locator("#keep").click();
+    for (let attempt = 0; attempt < 100 && !dashboard.isClosed(); attempt++) await Bun.sleep(50);
+    expect(dashboard.isClosed()).toBe(true);
+    expect(retained?.isClosed()).toBe(false);
+    expect((await cli("session", "list")).body).not.toContainEqual(
+      expect.objectContaining({ project: "dashboard" }),
+    );
+    await retained?.close();
+  } finally {
+    await cli("session", "close", "dashboard", "--close-tabs");
+  }
+});
+
 test("the owner's switch revokes sessions until control is enabled again", async () => {
   await ownerSwitch(false);
   expect((await cli("status")).body.enabled).toBe(false);
@@ -3151,18 +3192,18 @@ test("the owner's switch revokes sessions until control is enabled again", async
   await ownerSwitch(true);
   const reopened = await opened("acceptance");
   expect(reopened.body).toMatchObject({ project: "acceptance" });
-  expect(Number(reopened.body.tabs)).toBeGreaterThan(0);
+  expect(Number(reopened.body.tabs)).toBe(0);
   const result = await run("acceptance", "context.pages().map((page) => page.url()).sort()");
-  expect(result.body.value).toContain(`${origin}/`);
+  expect(result.body.value).toBe("[]");
 });
 
-test("a lost host is replaced and the agent group is reclaimed without owner tabs", async () => {
+test("a lost host ends its group and its replacement starts without old browser authority", async () => {
   const owner = await observed("/owner");
   expect(owner).toBeDefined();
   const leftover = join(area("acceptance"), "before-loss.png");
   const written = await run(
     "acceptance",
-    `await context.pages()[0].screenshot({ path: artifacts + "/before-loss.png" }); return "written"`,
+    `const page = await context.newPage(); await page.goto("${origin}/"); await page.screenshot({ path: artifacts + "/before-loss.png" }); return "written"`,
     "--timeout",
     "20000",
   );
@@ -3189,14 +3230,12 @@ test("a lost host is replaced and the agent group is reclaimed without owner tab
   expect(processes(cdpEndpoint)).toEqual([]);
   expect(existsSync(leftover)).toBe(false);
   const reopened = await opened("acceptance");
-  expect(Number(reopened.body.tabs)).toBeGreaterThan(0);
+  expect(Number(reopened.body.tabs)).toBe(0);
   const reclaimed = await run(
     "acceptance",
-    "[state.value === undefined, ...context.pages().map((page) => page.url())].join(' ')",
+    "[state.value === undefined, context.pages().length].join(' ')",
   );
-  expect(reclaimed.body.value).toStartWith("true ");
-  expect(reclaimed.body.value).toContain(`${origin}/`);
-  expect(reclaimed.body.value).not.toContain("/owner");
+  expect(reclaimed.body.value).toBe("true 0");
   expect(owner?.url()).toBe(`${origin}/owner`);
 });
 

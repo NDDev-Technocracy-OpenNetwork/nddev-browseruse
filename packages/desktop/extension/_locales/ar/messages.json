@@ -245,6 +245,32 @@
   "licensesPageDescription": {
     "message": "الإشعارات الأصلية لمكونات الامتداد. يتضمن ملف تثبيت المضيف الأصلي والمنفّذ إشعاراتهما."
   },
+  "groupTitle": { "message": "مساحة عمل الوكيل" },
+  "groupDescription": { "message": "مهمة واحدة ومجموعة واحدة. علامة تبويب التحكم هذه غير متاحة للوكيل." },
+  "groupStarting": { "message": "جارٍ البدء" },
+  "groupReady": { "message": "جاهز للعمل" },
+  "groupRunning": { "message": "جارٍ العمل" },
+  "groupRecording": { "message": "جارٍ التسجيل" },
+  "groupClosing": { "message": "جارٍ الإنهاء" },
+  "groupUnavailable": { "message": "انتهى العمل" },
+  "groupLinkDown": { "message": "بانتظار المضيف المحلي" },
+  "groupUptime": { "message": "مدة الجلسة" },
+  "groupTabs": { "message": "علامات تبويب المواقع" },
+  "groupAnalytics": { "message": "نشاط المجموعة" },
+  "groupOperations": { "message": "العمليات" },
+  "groupFailures": { "message": "العمليات الفاشلة" },
+  "groupTotalTime": { "message": "وقت تنفيذ العمليات" },
+  "groupLastTime": { "message": "العملية الأخيرة" },
+  "groupIdle": { "message": "تنظيف تلقائي بعد {v1}" },
+  "groupBusyCleanup": { "message": "يتوقف التنظيف التلقائي مؤقتًا أثناء العمل والتسجيل." },
+  "groupPrivacyOff": { "message": "جمع النشاط متوقف. مُسح سجل المؤشرات؛ تبقى حالة العمل ومؤقت التنظيف فقط." },
+  "groupPrivacyMetadata": { "message": "عدادات ومدد محلية فقط. لا تتضمن المؤشرات محتوى الصفحات ولا تُصدّر تلقائيًا إلى مركز." },
+  "groupControls": { "message": "إنهاء المهمة" },
+  "groupClose": { "message": "إنهاء المهمة وإغلاق علامات التبويب" },
+  "groupKeep": { "message": "إبقاء علامات تبويب المواقع وإنهاء المهمة" },
+  "groupKeepHint": { "message": "تبقى علامات التبويب عادية دون مجموعة. تُحذف ملفات الجلسة عند الإنهاء؛ صدّر الملفات المطلوبة أولًا." },
+  "groupStopHint": { "message": "إغلاق علامة التحكم هذه أو نقلها خارج المجموعة ينهي المجموعة. تبقى علامات المواقع التي نقلتها سابقًا مفتوحة." },
+  "groupRequestFailed": { "message": "تعذر تأكيد الحالة الحالية. تحقق من المجموعة قبل تكرار الإجراء." },
   "sourceLink": {
     "message": "الشفرة المصدرية"
   }

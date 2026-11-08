@@ -241,8 +241,10 @@ pub fn load() -> Result<Config, IoError> {
     let bytes = std::fs::read(config_path()?).map_err(|_| IoError::Unavailable)?;
     let config: HostConfig =
         serde_json::from_slice(&bytes).map_err(|_| IoError::InvalidConfiguration)?;
+    let settings = crate::configuration::load()?;
     Ok(Config {
-        executor_settings: crate::configuration::load()?.executor,
+        lifecycle: settings.public.lifecycle,
+        executor_settings: settings.executor,
         diagnostics: crate::diagnostics::Policy::default(),
         runtime: runtime::directory()?,
         bun: config.bun,

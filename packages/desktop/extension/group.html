@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-platform="desktop" data-density="comfortable" data-direction="on">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>nddev-browseruse</title>
+    <link rel="stylesheet" href="styles/fonts.css" />
+    <link rel="stylesheet" href="vendor/design-system/tokens.css" />
+    <link rel="stylesheet" href="vendor/design-system/kit.css" />
+    <link rel="stylesheet" href="styles/group.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="brand"><img src="icons/icon-48.png" alt="" /><span data-i18n="title"></span></div>
+        <nav class="languages" aria-label="Language" data-i18n-aria="languageTitle">
+          <button type="button" data-language="en">EN</button>
+          <button type="button" data-language="ru">RU</button>
+          <button type="button" data-language="kk">ҚАЗ</button>
+          <button type="button" data-language="ar" lang="ar">ع</button>
+          <button type="button" data-language="zh-CN">中文</button>
+        </nav>
+      </header>
+      <section class="workspace" aria-labelledby="workspace-title">
+        <div class="workspace-heading">
+          <div><p class="eyebrow" data-i18n="groupTitle"></p><h1 id="workspace-title"></h1></div>
+          <span id="phase" class="pill" role="status" aria-live="polite"></span>
+        </div>
+        <p class="description" data-i18n="groupDescription"></p>
+        <div class="summary">
+          <div><span data-i18n="groupUptime"></span><strong id="uptime">—</strong></div>
+          <div><span data-i18n="groupTabs"></span><strong id="tabs">—</strong></div>
+          <div class="deadline"><span id="cleanup"></span></div>
+        </div>
+      </section>
+      <section id="metrics" class="metrics" aria-label="Operations" data-i18n-aria="groupAnalytics">
+        <article><h2 data-i18n="groupOperations"></h2><strong id="operations">—</strong></article>
+        <article><h2 data-i18n="groupFailures"></h2><strong id="failures">—</strong></article>
+        <article><h2 data-i18n="groupTotalTime"></h2><strong id="total">—</strong></article>
+        <article><h2 data-i18n="groupLastTime"></h2><strong id="last">—</strong></article>
+      </section>
+      <p id="privacy" class="note"></p>
+      <section class="controls" aria-labelledby="controls-title">
+        <h2 id="controls-title" data-i18n="groupControls"></h2>
+        <p data-i18n="groupStopHint"></p>
+        <div class="actions">
+          <button id="finish" type="button" class="nd-button" data-i18n="groupClose" disabled></button>
+          <button id="keep" type="button" class="nd-button nd-button--secondary" data-i18n="groupKeep" disabled></button>
+        </div>
+        <p class="note" data-i18n="groupKeepHint"></p>
+        <p id="error" role="status" hidden></p>
+      </section>
+      <footer><span id="version"></span><a id="licenses-link" target="_blank" rel="noreferrer" data-i18n="licenses"></a></footer>
+    </main>
+    <script type="module" src="group.js"></script>
+  </body>
+</html>

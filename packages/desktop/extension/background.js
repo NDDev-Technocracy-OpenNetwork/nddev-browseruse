@@ -1,6 +1,7 @@
 // Thin browser layer for ADR 0015: the Rust host owns sessions and policy.
 // This worker only attaches chrome.debugger to tabs in NDS-managed groups and
 // relays their CDP traffic over native messaging. Other tabs are never touched.
+import { Groups } from "./groups.js";
 import { Restore, restricted } from "./restore.js";
 const HOST = "ai.nddev.nds.browser_use";
 const PROTOCOL = "1.3";
@@ -109,6 +110,7 @@ let privateSites = [];
 let retry = 1000;
 // Group key -> Chrome group id. Persisted for worker restarts in this browser session.
 let groups = new Map();
+let managedGroups;
 // Group key -> its current life.
 const lives = new Map();
 // Attached agent tab -> its attachment.
@@ -161,6 +163,28 @@ async function load() {
         OBSERVATIONS.find((profile) => profile === local[OBSERVATION]) ?? config.initialObservation;
     const session = await chrome.storage.session.get(GROUPS);
     groups = new Map(Object.entries((session[GROUPS] ?? {})));
+    managedGroups = new Groups(config.lifecycle, groups, (project, identity) => {
+        const life = lives.get(project);
+        if (life &&
+            (life.owner === identity || (!life.owner && managedGroups.live(project)?.id === identity))) {
+            life.open = false;
+            life.close = true;
+        }
+        send({ type: "group_closed", group: project, identity });
+    }, () => report("browser.group.cleanup", "cleanup_failed"));
+    await managedGroups.load();
+    setTimeout(() => {
+        void managedGroups
+            .recover()
+            .then(saveGroups)
+            .catch(() => report("browser.group.cleanup", "cleanup_failed"));
+    }, config.lifecycle.orphanGraceMs);
+    setInterval(() => {
+        void managedGroups
+            .recover()
+            .then(saveGroups)
+            .catch(() => report("browser.group.cleanup", "cleanup_failed"));
+    }, config.lifecycle.orphanGraceMs);
     await badge();
 }
 function saveGroups() {
@@ -281,6 +305,8 @@ function connect() {
             void reloadFor(message.version);
         else if (message.type === "recorded")
             recorded.get(message.request)?.(message);
+        else if (message.type === "grouped")
+            grouped.get(message.request)?.(message);
         else if (message.type === "journaled")
             journaled.get(message.request)?.(message.lines);
         else if (message.type === "about") {
@@ -316,8 +342,10 @@ function connect() {
         policyGeneration++;
         enabled = false;
         observation = "off";
-        void detachAll().then(badge);
-        setTimeout(connect, retry);
+        void detachAll(true)
+            .then(badge)
+            .catch(() => report("browser.group.cleanup", "cleanup_failed"))
+            .finally(() => setTimeout(connect, retry));
         retry = Math.min(retry * 2, 60_000);
     });
     send({
@@ -332,6 +360,7 @@ function connect() {
         downloads: chrome.downloads !== undefined,
         // The host may send a message larger than Chrome passes in parts this worker joins.
         parts: true,
+        terminalGroups: true,
         observation,
         private: privateSites,
     });
@@ -736,6 +765,15 @@ async function dispatch(message) {
                     : { group: message.group, open: true, close: false, work: new Set() };
                 lives.set(message.group, life);
             }
+            await admitted(life, managedGroups.ensure(message.group));
+            const owner = managedGroups.live(message.group)?.id;
+            if (!life.open) {
+                if (owner)
+                    await managedGroups.closeId(owner, true);
+                throw new Refusal("target_closed");
+            }
+            if (owner)
+                life.owner = owner;
             const tabs = await owned(message.group);
             const result = [];
             for (const tab of tabs) {
@@ -750,7 +788,7 @@ async function dispatch(message) {
                 if (target !== undefined)
                     result.push({ tab: tab.id, target });
             }
-            return { tabs: result };
+            return { tabs: result, owner };
         }
         case "release": {
             // The life closes before anything is awaited, so no later work of it can attach a tab. The
@@ -766,6 +804,15 @@ async function dispatch(message) {
                 life.close = message.close;
                 ending.add(life);
             }
+            if (message.terminate) {
+                if (!message.close)
+                    throw new Refusal("invalid_request");
+                await managedGroups.close(message.group, true);
+                for (const [tab, attachment] of [...attached]) {
+                    if (ending.has(attachment.life))
+                        await relinquish(tab, attachment, !attachment.revoked);
+                }
+            }
             for (const old of ending)
                 await drained(old);
             const failures = [];
@@ -777,7 +824,11 @@ async function dispatch(message) {
             }
             if (failures.length > 0)
                 throw failures[0];
-            return { released: true };
+            if (message.close || message.handoff) {
+                await managedGroups.close(message.group, message.close);
+                await saveGroups();
+            }
+            return message.terminate ? { released: true, terminated: true } : { released: true };
         }
         case "tabs": {
             const result = [];
@@ -810,7 +861,9 @@ async function owned(group) {
         await saveGroups();
         return [];
     }
-    return chrome.tabs.query({ groupId: id });
+    return (await chrome.tabs.query({ groupId: id })).filter((tab) => tab.id !== undefined &&
+        !managedGroups.isAnchor(tab.id) &&
+        !managedGroups.isOwnerPage(tab.pendingUrl ?? tab.url));
 }
 // The group each agent area is forming now. Tabs that open at once for an area without a group
 // wait for the one that forms it and join that group, rather than forming one each.
@@ -857,6 +910,8 @@ async function own(tab, work) {
 // An agent tab the host asked for. A tab created for a life that ended meanwhile is closed again
 // when that life's release closes its tabs.
 async function opened(life, url) {
+    if (managedGroups.isOwnerPage(url))
+        throw new Refusal("invalid_request");
     // A tab of an agent area that exists opens in that area's window, so it never shows up in the
     // window the owner works in on its way there.
     const area = groups.get(life.group);
@@ -902,6 +957,8 @@ function attach(tab, life) {
                 lives.get(life.group) !== life ||
                 attempt.moved ||
                 !before ||
+                managedGroups.isAnchor(tab) ||
+                managedGroups.isOwnerPage(before.pendingUrl ?? before.url) ||
                 groupKey(before.groupId) !== life.group)
                 throw new Refusal("target_closed");
             await chrome.debugger.attach({ tabId: tab }, PROTOCOL);
@@ -1046,10 +1103,21 @@ function closeAll() {
 // The owner's switch and a lost host end every life at once and then the attachments of exactly
 // those lives, never of a life a later claim starts. A tab whose detach fails stays owned, so the
 // release of its group retries and reports it.
-async function detachAll() {
+async function detachAll(closeTabs = false) {
     const ending = new Set([...lives.values(), ...[...attached.values()].map(({ life }) => life)]);
-    for (const life of ending)
+    for (const life of ending) {
         life.open = false;
+        life.close = closeTabs;
+    }
+    if (closeTabs) {
+        // Host loss ends the authority itself. Closing known owned tabs interrupts outstanding CDP
+        // work before the drain; a dead host cannot recover those tasks by adopting their old group.
+        await Promise.all([...ending].map((life) => managedGroups.close(life.group, true)));
+        await Promise.all([...attached]
+            .filter(([, held]) => ending.has(held.life))
+            .map(([tab, held]) => relinquish(tab, held, !held.revoked).catch(() => undefined)));
+        await saveGroups();
+    }
     await Promise.all([...ending].map(drained));
     await Promise.all([...attached]
         .filter(([, attachment]) => ending.has(attachment.life))
@@ -1118,6 +1186,11 @@ function sweep(life) {
 }
 async function adopt(tab, life) {
     if (!life.open || !port || attached.has(tab) || adopting.has(tab))
+        return;
+    const info = await chrome.tabs.get(tab).catch(() => undefined);
+    if (!info ||
+        managedGroups.isAnchor(tab) ||
+        managedGroups.isOwnerPage(info.pendingUrl ?? info.url))
         return;
     adopting.add(tab);
     try {
@@ -1302,6 +1375,7 @@ void chrome.notifications
     .catch(() => undefined);
 // A removed tab ends its debugger session; Chrome may report the removal before the detach.
 chrome.tabs.onRemoved.addListener((tab) => {
+    managedGroups?.removed(tab);
     void chrome.notifications.clear(`${OWNER}${tab}`);
     const attachment = attached.get(tab);
     if (!attachment)
@@ -1483,8 +1557,11 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
 });
 // Moving a tab into an agent group shares it; moving it out revokes control.
 chrome.tabs.onUpdated.addListener((tabId, change) => {
+    if (change.url !== undefined)
+        managedGroups?.navigated(tabId, change.url);
     if (change.groupId === undefined)
         return;
+    managedGroups?.moved(tabId, change.groupId);
     const pending = attaching.get(tabId);
     if (pending && pending.life.group !== groupKey(change.groupId))
         pending.moved = true;
@@ -1555,7 +1632,7 @@ async function applyPolicy() {
         enabled = false;
         closeAll();
         send({ type: "control", enabled: false });
-        policyDrain = policyDrain.then(detachAll);
+        policyDrain = policyDrain.then(() => detachAll(true));
     }
     await policyDrain;
     if (generation !== policyGeneration)
@@ -1590,7 +1667,56 @@ async function setEnabled(value) {
 // so an agent later reads what the owner did. The popup names its tab only when it is opened as
 // a page of its own (tests); otherwise it is the active tab of the last focused window.
 const recorded = new Map();
+const grouped = new Map();
+let groupRequests = 0;
 let records = 0;
+async function groupOwner(id, action) {
+    const generation = policyGeneration;
+    const identity = managedGroups.identity(id);
+    const base = {
+        identity: identity ?? null,
+        connected: port !== undefined && hostReady,
+        observation,
+        status: null,
+        error: null,
+    };
+    if (!identity)
+        return { ...base, error: "unavailable" };
+    if (managedGroups.conflicted(id))
+        return { ...base, error: "ownership_conflict" };
+    if (!base.connected)
+        return base;
+    if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
+        return { ...base, error: "request_failed" };
+    const request = ++groupRequests;
+    const result = await new Promise((done) => {
+        const timer = setTimeout(() => finish({ error: "timeout" }), config.ownerReplyMs);
+        function finish(answer) {
+            clearTimeout(timer);
+            grouped.delete(request);
+            done(answer);
+        }
+        grouped.set(request, finish);
+        send({ type: "group", request, group: identity.project, identity: id, action });
+    });
+    if (result.error) {
+        if (result.error === "session_not_found" && action !== "status")
+            await managedGroups.closeId(id, action === "close");
+        return {
+            ...base,
+            error: result.error === "session_not_found" ? "unavailable" : "request_failed",
+        };
+    }
+    const status = result.status
+        ? {
+            ...result.status,
+            metrics: generation === policyGeneration && observation !== "off"
+                ? (result.status.metrics ?? null)
+                : null,
+        }
+        : null;
+    return { ...base, connected: port !== undefined && hostReady, observation, status };
+}
 async function record(action, tab) {
     const id = tab ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0]?.id ?? -1;
     const held = usable(id);
@@ -1598,7 +1724,7 @@ async function record(action, tab) {
         return { error: "no_agent_tab" };
     if (!port)
         return { error: "extension_unavailable" };
-    if (recorded.size + journaled.size >= config.ownerRequestsLimit)
+    if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
         return { error: "busy" };
     const request = ++records;
     return new Promise((done) => {
@@ -1639,7 +1765,7 @@ async function recent(tab) {
         return { error: "no_agent_tab" };
     if (!port)
         return { error: "extension_unavailable" };
-    if (recorded.size + journaled.size >= config.ownerRequestsLimit)
+    if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
         return { error: "busy" };
     const request = ++journals;
     return new Promise((done) => {
@@ -1717,6 +1843,15 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
             .catch(() => reply({ error: "configuration_unavailable" }));
         return true;
     };
+    if (message.type === "group" &&
+        typeof message.id === "string" &&
+        /^[a-f0-9]{32}$/.test(message.id) &&
+        sender.url === `${chrome.runtime.getURL("group.html")}#${message.id}` &&
+        (message.action === "status" || message.action === "close" || message.action === "keep")) {
+        const id = message.id;
+        const action = message.action;
+        return answer(() => groupOwner(id, action));
+    }
     if (message.type === "set" && typeof message.enabled === "boolean") {
         const value = message.enabled;
         return answer(() => setEnabled(value).then(() => status(tab)));

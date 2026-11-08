@@ -9,6 +9,11 @@ mod executor;
 pub use executor::{ActivitySettings, ExecutionSettings, ExecutorSettings, RecorderSettings};
 mod capture;
 pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
+mod lifecycle;
+pub use lifecycle::{
+    GroupDashboard, GroupFailure, GroupIdentity, GroupMetrics, GroupPhase, GroupStatus,
+    LifecycleSettings,
+};
 mod native;
 pub use native::{AdbSettings, NativeSettings};
 
@@ -41,6 +46,7 @@ pub struct BadgeColors {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FrontendConfig {
+    pub lifecycle: LifecycleSettings,
     /// Minimum native host version that enforces observation revocation.
     pub minimum_host: String,
     /// Monotonic revision of the prominent disclosure accepted in this browser profile.
@@ -106,7 +112,8 @@ impl Settings {
             .try_into()
             .map_err(|_| "missing, unknown or mistyped setting")?;
         let public = &settings.public;
-        if !settings.phone_link.validate()
+        if !settings.public.lifecycle.validate()
+            || !settings.phone_link.validate()
             || !settings.executor.validate()
             || !settings.native.validate()
             || public.minimum_host.split('.').count() != 3
@@ -183,6 +190,9 @@ pub struct OwnerRecording {
         FrontendConfig,
         BrowserStatus,
         OwnerRecording,
+        GroupStatus,
+        GroupIdentity,
+        GroupDashboard,
         BadgeColors,
         ExecutorSettings,
         CaptureRequest,
@@ -215,6 +225,11 @@ partsBytes = 4096
 guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/guide"
 privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/privacy"
 installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/install"
+[public.lifecycle]
+idleTimeoutMs = 300000
+sweepIntervalMs = 1000
+orphanGraceMs = 10000
+groupsLimit = 32
 [phone_link]
 queueMessages = 8
 browserQueueBytes = 2097152

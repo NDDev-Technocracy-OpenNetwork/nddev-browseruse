@@ -145,6 +145,7 @@ export type FrontendConfig = {
      */
     initialObservation: Observation;
     installUrl: string;
+    lifecycle: LifecycleSettings;
     /**
      * Minimum native host version that enforces observation revocation.
      */
@@ -174,6 +175,72 @@ export type FrontendConfig = {
      * Milliseconds for one browser setup command, per command.
      */
     setupTimeoutMs: number;
+};
+
+export type GroupDashboard = {
+    connected: boolean;
+    error?: GroupFailure | null;
+    identity?: GroupIdentity | null;
+    observation: Observation;
+    status?: GroupStatus | null;
+};
+
+export type GroupFailure = 'unavailable' | 'request_failed' | 'ownership_conflict';
+
+/**
+ * Browser-local recovery identity, never a native session capability or a grant to execute code.
+ */
+export type GroupIdentity = {
+    createdAtMs: number;
+    id: string;
+    project: string;
+};
+
+/**
+ * Bounded aggregate counters. No operation arguments or page-content fields are retained here.
+ */
+export type GroupMetrics = {
+    completed: number;
+    failed: number;
+    lastMs?: number | null;
+    totalMs: number;
+};
+
+export type GroupPhase = 'starting' | 'ready' | 'running' | 'recording' | 'closing';
+
+/**
+ * Owner-only operational projection. It contains no session capability or execution code.
+ */
+export type GroupStatus = {
+    idleMs: number;
+    idleTimeoutMs: number;
+    metrics?: GroupMetrics | null;
+    phase: GroupPhase;
+    project: string;
+    siteTabs: number;
+    uptimeMs: number;
+};
+
+/**
+ * Per-host and per-browser cleanup limits. New host/worker instances read them once.
+ */
+export type LifecycleSettings = {
+    /**
+     * Durable group records in one browser profile, including groups awaiting cleanup.
+     */
+    groupsLimit: number;
+    /**
+     * Inactivity deadline per session. Executions and explicit recording suspend expiry.
+     */
+    idleTimeoutMs: number;
+    /**
+     * Recovery grace for a durable control tab whose previous host no longer owns it.
+     */
+    orphanGraceMs: number;
+    /**
+     * Maximum interval between the host's cleanup passes.
+     */
+    sweepIntervalMs: number;
 };
 
 export type Observation = 'full' | 'standard' | 'off';

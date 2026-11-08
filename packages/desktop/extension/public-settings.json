@@ -1,5 +1,11 @@
 {
-  "minimumHost": "0.2.5",
+  "lifecycle": {
+    "idleTimeoutMs": 300000,
+    "sweepIntervalMs": 1000,
+    "orphanGraceMs": 10000,
+    "groupsLimit": 32
+  },
+  "minimumHost": "0.2.7",
   "consentRevision": 1,
   "initialObservation": "standard",
   "privateSitesLimit": 256,

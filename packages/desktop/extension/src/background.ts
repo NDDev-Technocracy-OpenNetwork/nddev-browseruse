@@ -7,9 +7,12 @@ import type {
   BrowserStatus,
   Build,
   FrontendConfig,
+  GroupDashboard,
+  GroupStatus,
   Observation,
   OwnerRecording,
 } from "./generated/types.gen.js";
+import { Groups } from "./groups.js";
 import { type FrameTree, Restore, restricted } from "./restore.js";
 
 const HOST = "ai.nddev.nds.browser_use";
@@ -132,11 +135,19 @@ type HostRequest =
   | { type: "open"; id: number; group: string; url: string }
   | { type: "close"; id: number; group: string; tab: number }
   | { type: "claim"; id: number; group: string }
-  | { type: "release"; id: number; group: string; close: boolean }
+  | {
+      type: "release";
+      id: number;
+      group: string;
+      close: boolean;
+      handoff?: boolean;
+      terminate?: boolean;
+    }
   | { type: "tabs"; id: number; tabs: number[] }
   | { type: "forget"; id: number; download: number }
   | { type: "reload"; id?: undefined; version: string }
   | ({ type: "recorded"; request: number } & OwnerRecording)
+  | { type: "grouped"; request: number; status?: GroupStatus | null; error?: string }
   | { type: "incompatible"; id?: undefined; contract: number }
   | { type: "journaled"; id?: undefined; request: number; lines: string[] }
   | { type: "about"; id?: undefined; version: string; commit: string }
@@ -149,6 +160,7 @@ type Answered = Exclude<
   HostRequest,
   | { type: "reload" }
   | { type: "recorded" }
+  | { type: "grouped" }
   | { type: "incompatible" }
   | { type: "journaled" }
   | { type: "about" }
@@ -165,11 +177,18 @@ let privateSites: string[] = [];
 let retry = 1000;
 // Group key -> Chrome group id. Persisted for worker restarts in this browser session.
 let groups = new Map<string, number>();
+let managedGroups: Groups;
 
 // One life of an agent group, from the host's claim to its release. Work that can attach a tab is
 // admitted only while the life is open and stays counted until it settles, so a release closes the
 // life before it awaits anything and then waits for that work before it detaches.
-type Life = { group: string; open: boolean; close: boolean; work: Set<Promise<unknown>> };
+type Life = {
+  group: string;
+  owner?: string;
+  open: boolean;
+  close: boolean;
+  work: Set<Promise<unknown>>;
+};
 // One debugger session of this worker on an agent tab. It ends only on Chrome's own word: this
 // worker's detach or close resolved, or Chrome reported the session or the tab gone.
 type Attachment = {
@@ -246,6 +265,35 @@ async function load(): Promise<void> {
     OBSERVATIONS.find((profile) => profile === local[OBSERVATION]) ?? config.initialObservation;
   const session = await chrome.storage.session.get(GROUPS);
   groups = new Map(Object.entries((session[GROUPS] ?? {}) as Record<string, number>));
+  managedGroups = new Groups(
+    config.lifecycle,
+    groups,
+    (project, identity) => {
+      const life = lives.get(project);
+      if (
+        life &&
+        (life.owner === identity || (!life.owner && managedGroups.live(project)?.id === identity))
+      ) {
+        life.open = false;
+        life.close = true;
+      }
+      send({ type: "group_closed", group: project, identity });
+    },
+    () => report("browser.group.cleanup", "cleanup_failed"),
+  );
+  await managedGroups.load();
+  setTimeout(() => {
+    void managedGroups
+      .recover()
+      .then(saveGroups)
+      .catch(() => report("browser.group.cleanup", "cleanup_failed"));
+  }, config.lifecycle.orphanGraceMs);
+  setInterval(() => {
+    void managedGroups
+      .recover()
+      .then(saveGroups)
+      .catch(() => report("browser.group.cleanup", "cleanup_failed"));
+  }, config.lifecycle.orphanGraceMs);
   await badge();
 }
 
@@ -327,8 +375,14 @@ type Reported =
   | "browser.target.reattached"
   | "browser.target.restricted"
   | "browser.target.foreign_frames_removed"
-  | "browser.cdp.setup_timeout";
-type ReportedError = "attach_failed" | "target_changed" | "reattach_limit" | "timeout";
+  | "browser.cdp.setup_timeout"
+  | "browser.group.cleanup";
+type ReportedError =
+  | "attach_failed"
+  | "target_changed"
+  | "reattach_limit"
+  | "timeout"
+  | "cleanup_failed";
 
 // One event about this worker's own Chrome work for the host's telemetry: a fixed name, an
 // outcome and a fixed error type, never anything of a page.
@@ -377,6 +431,7 @@ function connect(): void {
     if (!message) return;
     if (message.type === "reload") void reloadFor(message.version);
     else if (message.type === "recorded") recorded.get(message.request)?.(message);
+    else if (message.type === "grouped") grouped.get(message.request)?.(message);
     else if (message.type === "journaled") journaled.get(message.request)?.(message.lines);
     else if (message.type === "about") {
       hostBuild = { version: message.version, commit: message.commit };
@@ -406,8 +461,10 @@ function connect(): void {
     policyGeneration++;
     enabled = false;
     observation = "off";
-    void detachAll().then(badge);
-    setTimeout(connect, retry);
+    void detachAll(true)
+      .then(badge)
+      .catch(() => report("browser.group.cleanup", "cleanup_failed"))
+      .finally(() => setTimeout(connect, retry));
     retry = Math.min(retry * 2, 60_000);
   });
   send({
@@ -422,6 +479,7 @@ function connect(): void {
     downloads: chrome.downloads !== undefined,
     // The host may send a message larger than Chrome passes in parts this worker joins.
     parts: true,
+    terminalGroups: true,
     observation,
     private: privateSites,
   });
@@ -832,6 +890,13 @@ async function dispatch(message: Answered): Promise<unknown> {
           : { group: message.group, open: true, close: false, work: new Set() };
         lives.set(message.group, life);
       }
+      await admitted(life, managedGroups.ensure(message.group));
+      const owner = managedGroups.live(message.group)?.id;
+      if (!life.open) {
+        if (owner) await managedGroups.closeId(owner, true);
+        throw new Refusal("target_closed");
+      }
+      if (owner) life.owner = owner;
       const tabs = await owned(message.group);
       const result = [];
       for (const tab of tabs) {
@@ -843,7 +908,7 @@ async function dispatch(message: Answered): Promise<unknown> {
         });
         if (target !== undefined) result.push({ tab: tab.id, target });
       }
-      return { tabs: result };
+      return { tabs: result, owner };
     }
     case "release": {
       // The life closes before anything is awaited, so no later work of it can attach a tab. The
@@ -859,6 +924,13 @@ async function dispatch(message: Answered): Promise<unknown> {
         life.close = message.close;
         ending.add(life);
       }
+      if (message.terminate) {
+        if (!message.close) throw new Refusal("invalid_request");
+        await managedGroups.close(message.group, true);
+        for (const [tab, attachment] of [...attached]) {
+          if (ending.has(attachment.life)) await relinquish(tab, attachment, !attachment.revoked);
+        }
+      }
       for (const old of ending) await drained(old);
       const failures: unknown[] = [];
       for (const [tab, attachment] of [...attached]) {
@@ -867,7 +939,11 @@ async function dispatch(message: Answered): Promise<unknown> {
         await relinquish(tab, attachment, close).catch((error) => failures.push(error));
       }
       if (failures.length > 0) throw failures[0];
-      return { released: true };
+      if (message.close || message.handoff) {
+        await managedGroups.close(message.group, message.close);
+        await saveGroups();
+      }
+      return message.terminate ? { released: true, terminated: true } : { released: true };
     }
     case "tabs": {
       const result = [];
@@ -898,7 +974,12 @@ async function owned(group: string): Promise<chrome.tabs.Tab[]> {
     await saveGroups();
     return [];
   }
-  return chrome.tabs.query({ groupId: id });
+  return (await chrome.tabs.query({ groupId: id })).filter(
+    (tab) =>
+      tab.id !== undefined &&
+      !managedGroups.isAnchor(tab.id) &&
+      !managedGroups.isOwnerPage(tab.pendingUrl ?? tab.url),
+  );
 }
 
 // The group each agent area is forming now. Tabs that open at once for an area without a group
@@ -947,6 +1028,7 @@ async function own<T>(tab: number, work: () => Promise<T>): Promise<T> {
 // An agent tab the host asked for. A tab created for a life that ended meanwhile is closed again
 // when that life's release closes its tabs.
 async function opened(life: Life, url: string): Promise<unknown> {
+  if (managedGroups.isOwnerPage(url)) throw new Refusal("invalid_request");
   // A tab of an agent area that exists opens in that area's window, so it never shows up in the
   // window the owner works in on its way there.
   const area = groups.get(life.group);
@@ -992,6 +1074,8 @@ function attach(tab: number, life: Life): Promise<unknown> {
           lives.get(life.group) !== life ||
           attempt.moved ||
           !before ||
+          managedGroups.isAnchor(tab) ||
+          managedGroups.isOwnerPage(before.pendingUrl ?? before.url) ||
           groupKey(before.groupId) !== life.group
         )
           throw new Refusal("target_closed");
@@ -1141,9 +1225,23 @@ function closeAll(): void {
 // The owner's switch and a lost host end every life at once and then the attachments of exactly
 // those lives, never of a life a later claim starts. A tab whose detach fails stays owned, so the
 // release of its group retries and reports it.
-async function detachAll(): Promise<void> {
+async function detachAll(closeTabs = false): Promise<void> {
   const ending = new Set([...lives.values(), ...[...attached.values()].map(({ life }) => life)]);
-  for (const life of ending) life.open = false;
+  for (const life of ending) {
+    life.open = false;
+    life.close = closeTabs;
+  }
+  if (closeTabs) {
+    // Host loss ends the authority itself. Closing known owned tabs interrupts outstanding CDP
+    // work before the drain; a dead host cannot recover those tasks by adopting their old group.
+    await Promise.all([...ending].map((life) => managedGroups.close(life.group, true)));
+    await Promise.all(
+      [...attached]
+        .filter(([, held]) => ending.has(held.life))
+        .map(([tab, held]) => relinquish(tab, held, !held.revoked).catch(() => undefined)),
+    );
+    await saveGroups();
+  }
   await Promise.all([...ending].map(drained));
   await Promise.all(
     [...attached]
@@ -1223,6 +1321,13 @@ function sweep(life: Life): void {
 
 async function adopt(tab: number, life: Life): Promise<void> {
   if (!life.open || !port || attached.has(tab) || adopting.has(tab)) return;
+  const info = await chrome.tabs.get(tab).catch(() => undefined);
+  if (
+    !info ||
+    managedGroups.isAnchor(tab) ||
+    managedGroups.isOwnerPage(info.pendingUrl ?? info.url)
+  )
+    return;
   adopting.add(tab);
   try {
     const target = await retried(tab, life, () => attach(tab, life));
@@ -1426,6 +1531,7 @@ void chrome.notifications
 
 // A removed tab ends its debugger session; Chrome may report the removal before the detach.
 chrome.tabs.onRemoved.addListener((tab) => {
+  managedGroups?.removed(tab);
   void chrome.notifications.clear(`${OWNER}${tab}`);
   const attachment = attached.get(tab);
   if (!attachment) return;
@@ -1615,7 +1721,9 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
 
 // Moving a tab into an agent group shares it; moving it out revokes control.
 chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.url !== undefined) managedGroups?.navigated(tabId, change.url);
   if (change.groupId === undefined) return;
+  managedGroups?.moved(tabId, change.groupId);
   const pending = attaching.get(tabId);
   if (pending && pending.life.group !== groupKey(change.groupId)) pending.moved = true;
   if (grouping.has(tabId)) return;
@@ -1681,7 +1789,7 @@ async function applyPolicy(): Promise<void> {
     enabled = false;
     closeAll();
     send({ type: "control", enabled: false });
-    policyDrain = policyDrain.then(detachAll);
+    policyDrain = policyDrain.then(() => detachAll(true));
   }
   await policyDrain;
   if (generation !== policyGeneration) return;
@@ -1719,7 +1827,56 @@ async function setEnabled(value: boolean): Promise<void> {
 // a page of its own (tests); otherwise it is the active tab of the last focused window.
 
 const recorded = new Map<number, (answer: OwnerRecording) => void>();
+type GroupAnswer = { status?: GroupStatus | null; error?: string };
+const grouped = new Map<number, (answer: GroupAnswer) => void>();
+let groupRequests = 0;
 let records = 0;
+
+async function groupOwner(id: string, action: string): Promise<GroupDashboard> {
+  const generation = policyGeneration;
+  const identity = managedGroups.identity(id);
+  const base: GroupDashboard = {
+    identity: identity ?? null,
+    connected: port !== undefined && hostReady,
+    observation,
+    status: null,
+    error: null,
+  };
+  if (!identity) return { ...base, error: "unavailable" };
+  if (managedGroups.conflicted(id)) return { ...base, error: "ownership_conflict" };
+  if (!base.connected) return base;
+  if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
+    return { ...base, error: "request_failed" };
+  const request = ++groupRequests;
+  const result = await new Promise<GroupAnswer>((done) => {
+    const timer = setTimeout(() => finish({ error: "timeout" }), config.ownerReplyMs);
+    function finish(answer: GroupAnswer): void {
+      clearTimeout(timer);
+      grouped.delete(request);
+      done(answer);
+    }
+    grouped.set(request, finish);
+    send({ type: "group", request, group: identity.project, identity: id, action });
+  });
+  if (result.error) {
+    if (result.error === "session_not_found" && action !== "status")
+      await managedGroups.closeId(id, action === "close");
+    return {
+      ...base,
+      error: result.error === "session_not_found" ? "unavailable" : "request_failed",
+    };
+  }
+  const status = result.status
+    ? {
+        ...result.status,
+        metrics:
+          generation === policyGeneration && observation !== "off"
+            ? (result.status.metrics ?? null)
+            : null,
+      }
+    : null;
+  return { ...base, connected: port !== undefined && hostReady, observation, status };
+}
 
 async function record(action: string, tab: number | undefined): Promise<OwnerRecording> {
   const id =
@@ -1727,7 +1884,8 @@ async function record(action: string, tab: number | undefined): Promise<OwnerRec
   const held = usable(id);
   if (!held) return { error: "no_agent_tab" };
   if (!port) return { error: "extension_unavailable" };
-  if (recorded.size + journaled.size >= config.ownerRequestsLimit) return { error: "busy" };
+  if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
+    return { error: "busy" };
   const request = ++records;
   return new Promise((done) => {
     const timer = setTimeout(() => finish({ error: "timeout" }), config.ownerReplyMs);
@@ -1767,7 +1925,8 @@ async function recent(tab: number | undefined): Promise<{ lines?: string[]; erro
   const held = usable(id);
   if (!held) return { error: "no_agent_tab" };
   if (!port) return { error: "extension_unavailable" };
-  if (recorded.size + journaled.size >= config.ownerRequestsLimit) return { error: "busy" };
+  if (recorded.size + journaled.size + grouped.size >= config.ownerRequestsLimit)
+    return { error: "busy" };
   const request = ++journals;
   return new Promise((done) => {
     const timer = setTimeout(() => finish(undefined), config.ownerReplyMs);
@@ -1842,6 +2001,7 @@ chrome.runtime.onMessage.addListener(
       action?: string;
       tab?: number;
       site?: string;
+      id?: string;
     },
     sender,
     reply,
@@ -1858,6 +2018,17 @@ chrome.runtime.onMessage.addListener(
         .catch(() => reply({ error: "configuration_unavailable" }));
       return true;
     };
+    if (
+      message.type === "group" &&
+      typeof message.id === "string" &&
+      /^[a-f0-9]{32}$/.test(message.id) &&
+      sender.url === `${chrome.runtime.getURL("group.html")}#${message.id}` &&
+      (message.action === "status" || message.action === "close" || message.action === "keep")
+    ) {
+      const id = message.id;
+      const action = message.action;
+      return answer(() => groupOwner(id, action));
+    }
     if (message.type === "set" && typeof message.enabled === "boolean") {
       const value = message.enabled;
       return answer(() => setEnabled(value).then(() => status(tab)));

@@ -221,18 +221,20 @@ pub struct ExtensionEvent {
     pub error: Option<&'static str>,
 }
 
-const EXTENSION_EVENTS: [&str; 4] = [
+const EXTENSION_EVENTS: [&str; 5] = [
     "browser.target.reattached",
     "browser.target.restricted",
     "browser.target.foreign_frames_removed",
     "browser.cdp.setup_timeout",
+    "browser.group.cleanup",
 ];
 const EXTENSION_OUTCOMES: [&str; 3] = ["ok", "rejected", "error"];
-const EXTENSION_ERRORS: [&str; 4] = [
+const EXTENSION_ERRORS: [&str; 5] = [
     "attach_failed",
     "target_changed",
     "reattach_limit",
     "timeout",
+    "cleanup_failed",
 ];
 
 /// Accepts a telemetry message from the extension only when every field is one of the fixed names,
