@@ -6,7 +6,7 @@ is updated with its ID and users preserved. The first store targets are Chrome
 Web Store and Microsoft Edge Add-ons.
 
 The import preserves the public NDS browser-use history through commit
-`9089610bc7f50fd3daa9b57b5134b331f93414d5`. Original product code is relicensed
+`94346d42a7d9cbc30894b3313cd8359f2c1837d1`. Original product code is relicensed
 under Apache-2.0 with MIT notices retained. NDS integration descriptors and
 mandatory NDS runtime/telemetry dependencies leave the standalone product.
 The local protocol remains version 2. Existing IDs and local data paths stay
