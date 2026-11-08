@@ -351,6 +351,7 @@ dependencies = [
 name = "nddev-browseruse-tools"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "nddev-browseruse-contract",
  "serde_json",
  "sha2",

@@ -271,6 +271,21 @@ fn native_lifecycle_diagnostics_follow_the_negotiated_profile() {
     }
 }
 
+#[test]
+fn version_reports_the_local_binary_without_reading_device_state_or_starting_a_host() {
+    let fixture = Fixture::new();
+    let output = fixture
+        .command(&["--version"])
+        .env("NDS_BROWSER_DEVICE", "unconfigured-fixture")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let build: nddev_browseruse::view::Build = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(build.version, env!("CARGO_PKG_VERSION"));
+    assert!(!build.commit.is_empty());
+    assert!(!fixture.runtime().exists());
+}
+
 /// Many short control exchanges in a row. The host must not end a connection in a way that
 /// makes the agent client fail to read a reply it already sent.
 #[test]

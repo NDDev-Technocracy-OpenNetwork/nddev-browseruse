@@ -12,6 +12,7 @@ use std::process::ExitCode;
 use std::{path::PathBuf, time::Duration};
 
 const USAGE: &str = "usage:
+  nddev-browseruse --version
   nddev-browseruse skill
   nddev-browseruse devices
   nddev-browseruse [--device <name>] status
@@ -48,6 +49,15 @@ async fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.len() > ARGUMENT_LIMIT {
         return usage();
+    }
+    if arguments.as_slice() == ["--version"] {
+        print(&nddev_browseruse::view::Build {
+            version: env!("CARGO_PKG_VERSION").into(),
+            commit: option_env!("BROWSERUSE_SOURCE_COMMIT")
+                .unwrap_or("unknown")
+                .into(),
+        });
+        return ExitCode::SUCCESS;
     }
     let native = arguments
         .first()
