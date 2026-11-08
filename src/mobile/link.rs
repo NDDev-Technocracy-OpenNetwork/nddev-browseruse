@@ -46,10 +46,6 @@ const REASON_LIMIT: usize = 200;
 /// A notification is cleared by snoozing it for ten years; Android has no shell command that
 /// cancels one.
 const CLEARED_MS: u64 = 10 * 365 * 24 * 60 * 60 * 1000;
-/// While the browser captures a screenshot, the page's scrollbars and caret stay out of it.
-const SHOT_STYLE: &str = "nds-screenshot-style";
-const SHOT_HIDE: &str = r#"(() => { if (document.getElementById("nds-screenshot-style")) return; const style = document.createElement("style"); style.id = "nds-screenshot-style"; style.textContent = "html { scrollbar-width: none !important } ::-webkit-scrollbar { display: none !important } * { caret-color: transparent !important }"; (document.head ?? document.documentElement).append(style); })()"#;
-
 /// What the phone's DevTools socket says about its browser (`/json/version`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Browser {
@@ -522,25 +518,8 @@ impl Link {
                 );
                 self.command(&mut state, Some(&session), method, params, Call::Host(id));
             }
-            "Page.captureScreenshot" if child.is_none() => {
-                let hide = json!({ "expression": SHOT_HIDE });
-                let show = json!({ "expression": format!("document.getElementById({SHOT_STYLE:?})?.remove()") });
-                self.command(
-                    &mut state,
-                    Some(&session),
-                    "Runtime.evaluate",
-                    hide,
-                    Call::Quiet,
-                );
-                self.command(&mut state, Some(&session), method, params, Call::Host(id));
-                self.command(
-                    &mut state,
-                    Some(&session),
-                    "Runtime.evaluate",
-                    show,
-                    Call::Quiet,
-                );
-            }
+            // Screenshots are browser frames, not document edits. In particular the phone
+            // bridge must not inject inline styles that violate the page's CSP.
             _ => self.command(&mut state, Some(&session), method, params, Call::Host(id)),
         }
     }

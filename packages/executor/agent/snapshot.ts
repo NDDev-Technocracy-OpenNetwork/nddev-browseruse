@@ -196,7 +196,7 @@ export function outline(view: string): string {
 
 /** Playwright's AI snapshot without what agents never need: pointer and focus marks, link
  * targets, hidden subtrees, and unnamed wrappers, whose children move up a level. */
-export function compact(view: string): string {
+function compact(view: string): string {
   const out: string[] = [];
   // Indents of the dropped wrappers above the current line, and of a hidden subtree.
   const dropped: number[] = [];

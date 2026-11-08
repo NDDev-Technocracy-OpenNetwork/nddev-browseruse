@@ -1,9 +1,10 @@
 # Security policy
 
-NDS repositories follow the central security policy in
-[nddev-device-sync/SECURITY.md](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync/blob/main/SECURITY.md).
+Report a suspected vulnerability privately to [danil@nddev.ai](mailto:danil@nddev.ai),
+the NDDev OpenNetwork contact. Public issues are for reproducible defects that
+contain no credentials or private browser data.
 
-Security reports go through the private security contact configured for the
-NDDev-OpenNetwork organization. Public issues are for reproducible
-non-sensitive defects only. Never publish access keys, device private keys,
-vault material, production endpoints or estate telemetry.
+Include the product version and source commit, affected boundary, a minimal
+reproduction using synthetic data, and the expected and actual behavior.
+Do not publish page content, access keys, device keys, session handles or owner
+logs. The current extraction candidate has not yet been qualified for release.

@@ -14,7 +14,7 @@ inside the tab groups that the owner grants them. Phones are described in [mobil
 
 ## How it works
 
-- **The extension** attaches `chrome.debugger` only to tabs in NDS tab groups. It relays their CDP
+- **The extension** attaches `chrome.debugger` only to tabs in agent tab groups. It relays their CDP
   traffic to the host through native messaging, and answers the host's `claim`, `open`, `close`,
   `release`, `cdp`, `tabs` and `forget` requests.
 - **The host** serves agents on its private control socket and runs each session's code in an
@@ -42,27 +42,31 @@ known not to work:
   them.
 - **Opera:** it turns tab groups into its own tab islands.
 
-## Install
+## Candidate validation
 
-- **The extension from the Chrome Web Store needs the NDS host on the same device.** Without the
-  host, the popup says so and links here. To install the host, check out this repository and install
-  Rust (the toolchain pinned in `rust-toolchain.toml`), Bun and `just`. Then run
-  `just install <browser>`, for example `just install chrome`. The host registers itself for that
-  browser and admits the store extension. The popup then shows "Connected", and agents start with
-  `nds-browser-use session new <project>`.
-- `just install` puts the host's `bin/` and the unpacked `extension/` under one prefix, and
-  registers the host for one browser.
-- Loading the unpacked extension is the owner's action. After that, an install reloads it through
-  the host.
-- An install that changes only the host replaces its binary. `nds-browser-use update` then ends the
-  running host once no session is open (`"restart": true`), and the extension starts the new
-  binary when it reconnects about a second later. With sessions open it answers `"restart": false`;
-  run it again after they close.
-- The Chrome Web Store build is the same extension without the pinned `key`.
+The standalone install and store packets are being qualified. Do not replace a
+working owner-browser installation with the extraction worktree.
+
+On a build host, run `just setup`, then `just verify`. Setup builds the Rust
+project helper and installs pinned dependencies. Check is read-only and offline;
+its prepared helper and dependencies can be copied to USA from the build host.
+Tests, builds and isolated browser acceptance run on build hosts only.
+
+The browser check uses `NDS_TEST_CHROME` when explicitly supplied, or downloads
+the pinned Chrome for Testing archive after checking its size and SHA-256.
+Chromium's sandbox remains enabled. The isolated Linux SUID sandbox helper
+requires permission to set its owner and mode; failure stops the check.
+No owner profile or native-host registration is used for acceptance.
+
+The native host can register one browser through `nddev-browseruse install`.
+The candidate staging workflow will supply its absolute Bun and executor paths.
+Loading the unpacked candidate and uploading a store ZIP are the owner's steps.
+The Chrome Web Store build uses the same source with the development key omitted.
+Edge's assigned store ID must also be admitted and tested before its release.
 
 ## Versions
 
-- `nds-browser-use status` names the host's build (`host.version` and the source commit
+- `nddev-browseruse status` names the host's build (`host.version` and the source commit
   `host.commit`) beside the connected extension's version.
 - The host and the extension speak one contract. When they do not match, for example a store
   extension older than the host, the host refuses it, `status` reports `compatible: false`, and

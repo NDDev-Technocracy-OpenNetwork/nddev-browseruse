@@ -4,13 +4,13 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::{
-    io::Read,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 
-const HOST: &str = env!("CARGO_BIN_EXE_nds-browser-use");
+const HOST: &str = env!("CARGO_BIN_EXE_nddev-browseruse");
 const UNPACKED: &str = "chrome-extension://lcdkocghcaakekcaeopjanfbohpfacbk/";
 const FOREIGN: &str = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
 
@@ -153,7 +153,10 @@ fn a_foreign_origin_is_refused_before_any_local_state() {
         let mut host = fixture.command(&[FOREIGN]).spawn().unwrap();
         let status = wait(&mut host, Duration::from_secs(5));
         assert_eq!(status.code(), Some(2));
-        assert!(stderr(&mut host).contains(r#""error.type":"origin_rejected""#));
+        assert!(
+            stderr(&mut host).is_empty(),
+            "unadmitted callers grant no observation profile"
+        );
         assert!(
             !fixture.runtime().exists(),
             "a refused caller created the runtime directory"
@@ -209,17 +212,60 @@ fn an_admitted_host_serves_owner_only_sockets_until_its_port_closes() {
     drop(host.stdin.take());
     let status = wait(&mut host, Duration::from_secs(5));
     assert!(status.success());
-    assert!(stderr(&mut host).contains(r#""error.type":"extension_closed""#));
+    assert!(
+        stderr(&mut host).is_empty(),
+        "a host without hello has no observation consent"
+    );
     assert!(!present(&control) && !present(&cdp));
+}
+
+#[test]
+fn native_lifecycle_diagnostics_follow_the_negotiated_profile() {
+    for profile in ["off", "full"] {
+        let fixture = Fixture::new();
+        fixture.install();
+        let mut host = fixture.command(&[UNPACKED]).spawn().unwrap();
+        appears(&fixture.runtime().join("control.sock"));
+        let body = serde_json::to_vec(&serde_json::json!({
+            "type": "hello", "contract": 2, "enabled": true,
+            "version": env!("CARGO_PKG_VERSION"), "observation": profile,
+            "userAgent": "Chrome/158.0.0.0"
+        }))
+        .unwrap();
+        let input = host.stdin.as_mut().unwrap();
+        input.write_all(&(body.len() as u32).to_ne_bytes()).unwrap();
+        input.write_all(&body).unwrap();
+        input.flush().unwrap();
+        let started = Instant::now();
+        loop {
+            let status = fixture.command(&["status"]).output().unwrap();
+            let body: nddev_browseruse::view::Status =
+                serde_json::from_slice(&status.stdout).unwrap();
+            if body.enabled && body.observation.as_deref() == Some(profile) {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "hello was not applied"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(host.stdin.take());
+        assert!(wait(&mut host, Duration::from_secs(5)).success());
+        let logs = stderr(&mut host);
+        if profile == "off" {
+            assert!(logs.is_empty());
+        } else {
+            assert!(logs.contains("browser.host.started") && logs.contains("browser.host.stopped"));
+        }
+    }
 }
 
 /// Many short control exchanges in a row. The host must not end a connection in a way that
 /// makes the agent client fail to read a reply it already sent.
 #[test]
 fn repeated_control_exchanges_all_reach_their_client() {
-    use nddev_device_sync_browser_use::{
-        BrowserUse, BrowserUseClient, CancellationToken, NativeIo,
-    };
+    use nddev_browseruse::{BrowserUse, BrowserUseClient, CancellationToken};
     let fixture = Fixture::new();
     fixture.install();
     let mut host = fixture.command(&[UNPACKED]).spawn().unwrap();
@@ -229,7 +275,7 @@ fn repeated_control_exchanges_all_reach_their_client() {
         .enable_all()
         .build()
         .unwrap();
-    let client = BrowserUseClient::new(NativeIo::new(1).unwrap().local_handle(), control).unwrap();
+    let client = BrowserUseClient::new(control).unwrap();
     let failures = runtime.block_on(async {
         let mut failures = Vec::new();
         for _ in 0..500 {

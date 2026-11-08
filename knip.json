@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "packages/desktop/extension/src/{background,popup,restore}.ts",
+    "packages/executor/executor.ts",
+    "packages/**/test/**/*.test.ts",
+    "e2e/**/*.test.ts"
+  ],
+  "project": [
+    "packages/**/*.ts",
+    "e2e/**/*.ts"
+  ],
+  "ignoreBinaries": [
+    "ffmpeg"
+  ]
+}

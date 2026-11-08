@@ -9,6 +9,7 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
     let (outbound, queue) = mpsc::channel(16);
     let host = Arc::new(Host {
         config: Config {
+            diagnostics: crate::diagnostics::Policy::default(),
             runtime: runtime.clone(),
             bun: std::env::current_exe().unwrap(),
             executor: root.path().join("inert.ts"),

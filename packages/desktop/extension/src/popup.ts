@@ -69,8 +69,18 @@ async function loadLanguage(): Promise<void> {
   }
 }
 
+function onClick(button: HTMLButtonElement, work: () => Promise<void>): void {
+  button.addEventListener("click", () => {
+    void work().catch(() => {
+      // A lost reply does not prove the worker rejected the change. Show the broken link;
+      // reopening the popup reads the authoritative state without retrying the action.
+      show({ ...last, enabled: last?.enabled ?? false, connected: false });
+    });
+  });
+}
+
 for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-language]")) {
-  button.addEventListener("click", async () => {
+  onClick(button, async () => {
     await chrome.storage.local.set({ [LANGUAGE]: button.dataset.language }).catch(() => undefined);
     await loadLanguage();
     render();
@@ -224,15 +234,16 @@ element<HTMLButtonElement>("private-add")?.addEventListener("click", (event) => 
 });
 
 const toggle = element<HTMLButtonElement>("toggle");
-toggle?.addEventListener("click", async () => {
-  toggle.disabled = true;
-  const enabled = toggle.getAttribute("aria-checked") !== "true";
-  show((await chrome.runtime.sendMessage({ type: "set", enabled, tab: forTab })) as Status);
-});
+if (toggle)
+  onClick(toggle, async () => {
+    toggle.disabled = true;
+    const enabled = toggle.getAttribute("aria-checked") !== "true";
+    show((await chrome.runtime.sendMessage({ type: "set", enabled, tab: forTab })) as Status);
+  });
 
 const profiles = [...document.querySelectorAll<HTMLButtonElement>("button[data-profile]")];
 for (const button of profiles) {
-  button.addEventListener("click", async () => {
+  onClick(button, async () => {
     for (const each of profiles) each.disabled = true;
     show(
       (await chrome.runtime.sendMessage({

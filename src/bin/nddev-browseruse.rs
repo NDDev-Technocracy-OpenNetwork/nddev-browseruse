@@ -1,10 +1,10 @@
-//! `nds-browser-use`: the agent CLI and, when Chrome starts it, the native host.
+//! `nddev-browseruse`: the agent CLI and, when Chrome starts it, the native host.
 #![cfg_attr(not(any(unix, windows)), allow(unused))]
 
 #[cfg(any(unix, windows))]
-use nddev_device_sync_browser_use::{
-    BrowserUse, BrowserUseClient, CancellationToken, Error, NativeIo, activity, artifact, device,
-    host, install, mobile,
+use nddev_browseruse::{
+    BrowserUse, BrowserUseClient, CancellationToken, Error, activity, artifact, device, host,
+    install, mobile,
     protocol::{self, Document},
 };
 use std::process::ExitCode;
@@ -12,33 +12,33 @@ use std::process::ExitCode;
 use std::{path::PathBuf, time::Duration};
 
 const USAGE: &str = "usage:
-  nds-browser-use skill
-  nds-browser-use devices
-  nds-browser-use [--device <name>] status
-  nds-browser-use [--device <name>] update
-  nds-browser-use [--device <name>] session new <project>
-  nds-browser-use [--device <name>] session list
-  nds-browser-use [--device <name>] session close <project> [--keep-tabs]
-  nds-browser-use [--device <name>] -s <project> (-e <code> | -f <file> | -f -) [--timeout <ms, at most 25000>] [--expect <target>:<document>] [--json]
-  nds-browser-use [--device <name>] -s <project> artifact (list | <path> [--output <file>])
-  nds-browser-use [--device <name>] -s <project> recorder (start | stop | status)
-  nds-browser-use [--device <name>] -s <project> recorder events [<id>...] [--recording <id>] [--type <type>] [--errors] [--exclude <regex>] [--full]
-  nds-browser-use [--device <name>] -s <project> recorder frame <id> [--offset <ms>] [--recording <id>]
-  nds-browser-use [--device <name>] -s <project> activity [--all] [--type <type>] [--errors] [--grep <text>] [--exec <id>] [--last <n, at most 10000>] [--full]
-  nds-browser-use [--device <name>] -s <project> activity body <sha256>
-  nds-browser-use install --bun <path> --executor <path> (--browser <chrome|chrome-beta|chrome-dev|chrome-canary|chrome-for-testing|chromium|edge|edge-beta|edge-dev|brave> | --host-dir <path>)
-  nds-browser-use phones
-  nds-browser-use phone serve <serial> [--socket <name>] [--observation <full|standard|off>] [--once]
-  nds-browser-use --phone <serial> <any session command above>
+  nddev-browseruse skill
+  nddev-browseruse devices
+  nddev-browseruse [--device <name>] status
+  nddev-browseruse [--device <name>] update
+  nddev-browseruse [--device <name>] session new <project>
+  nddev-browseruse [--device <name>] session list
+  nddev-browseruse [--device <name>] session close <project> [--keep-tabs]
+  nddev-browseruse [--device <name>] -s <project> (-e <code> | -f <file> | -f -) [--timeout <ms, at most 25000>] [--expect <target>:<document>] [--json]
+  nddev-browseruse [--device <name>] -s <project> artifact (list | <path> [--output <file>])
+  nddev-browseruse [--device <name>] -s <project> recorder (start | stop | status)
+  nddev-browseruse [--device <name>] -s <project> recorder events [<id>...] [--recording <id>] [--type <type>] [--errors] [--exclude <regex>] [--full]
+  nddev-browseruse [--device <name>] -s <project> recorder frame <id> [--offset <ms>] [--recording <id>]
+  nddev-browseruse [--device <name>] -s <project> activity [--all] [--type <type>] [--errors] [--grep <text>] [--exec <id>] [--last <n, at most 10000>] [--full]
+  nddev-browseruse [--device <name>] -s <project> activity body <sha256>
+  nddev-browseruse install --bun <path> --executor <path> (--browser <chrome|chrome-beta|chrome-dev|chrome-canary|chrome-for-testing|chromium|edge|edge-beta|edge-dev|brave> | --host-dir <path>)
+  nddev-browseruse phones
+  nddev-browseruse phone serve <serial> [--socket <name>] [--observation <full|standard|off>] [--once]
+  nddev-browseruse --phone <serial> <any session command above>
 NDS_BROWSER_DEVICE names the default device; NDS_BROWSER_PHONE the default phone.";
-/// How agents use the tool, printed by `nds-browser-use skill`.
+/// How agents use the tool, printed by `nddev-browseruse skill`.
 const AGENT_GUIDE: &str = include_str!("../../docs/agent-guide.md");
 const ARGUMENT_LIMIT: usize = 16;
-const CODE_LIMIT: usize = 60_000;
+use nddev_browseruse::protocol::CODE_LIMIT;
 
 #[cfg(not(any(unix, windows)))]
 fn main() -> ExitCode {
-    eprintln!("nds-browser-use is not supported on this platform");
+    eprintln!("nddev-browseruse is not supported on this platform");
     ExitCode::from(2)
 }
 
@@ -54,21 +54,18 @@ async fn main() -> ExitCode {
         .is_some_and(|first| first.starts_with("chrome-extension://"));
     // A phone's host runs in the owner's terminal and reports like the one Chrome starts.
     let host_mode = native || arguments.get(..2) == Some(&["phone".into(), "serve".into()]);
-    // stdout carries native messaging in host mode; local telemetry uses stderr. The host emits
-    // browser.* for every client request, so a client writes its own stream only inside an
-    // explicit SDK debug window (NDS_LOG_MODE=debug); agents read a client's stderr.
-    let debug =
-        nddev_device_sync_telemetry::DebugWindow::from_settings(|name| std::env::var(name).ok());
-    let _telemetry = match (host_mode, debug) {
-        (true, _) => Some(Telemetry::install(true, None)),
-        (false, Ok(Some(window))) => Some(Telemetry::install(false, Some(window))),
-        (false, Ok(None)) => None,
-        (false, Err(_)) => {
-            eprintln!(
-                "Error (invalid_configuration): NDS_LOG_MODE and NDS_DEBUG_* do not name a valid debug window"
-            );
-            return ExitCode::from(2);
+    let policy = nddev_browseruse::diagnostics::Policy::default();
+    // Native messaging owns stdout; only the executable installs a local stderr subscriber.
+    let _telemetry = if host_mode {
+        match nddev_browseruse::diagnostics::install(policy.clone()) {
+            Ok(guard) => Some(guard),
+            Err(_) => {
+                eprintln!("Error (diagnostics_unavailable): local diagnostics could not start");
+                return ExitCode::from(2);
+            }
         }
+    } else {
+        None
     };
     if native {
         // A foreign caller is refused before any local configuration is read.
@@ -77,13 +74,16 @@ async fn main() -> ExitCode {
             return ExitCode::from(2);
         }
         let code = match install::load() {
-            Ok(config) => match host::run(&arguments[0], config).await {
-                Ok(()) => 0,
-                Err(error) => {
-                    tracing::error!(event.name = "browser.host.failed", outcome = "error", error.type = host_error(&error));
-                    2
+            Ok(mut config) => {
+                config.diagnostics = policy.clone();
+                match host::run(&arguments[0], config).await {
+                    Ok(()) => 0,
+                    Err(error) => {
+                        tracing::error!(event.name = "browser.host.failed", outcome = "error", error.type = host_error(&error));
+                        2
+                    }
                 }
-            },
+            }
             Err(error) => {
                 tracing::error!(event.name = "browser.host.failed", outcome = "error", error.type = error.code());
                 2
@@ -116,7 +116,7 @@ async fn main() -> ExitCode {
         _ => (chosen_phone, words),
     };
     if let Some(serial) = &phone
-        && nddev_device_sync_browser_use::choose_phone(serial).is_err()
+        && nddev_browseruse::choose_phone(serial).is_err()
     {
         return refused("invalid_request", "the phone serial is invalid");
     }
@@ -124,7 +124,7 @@ async fn main() -> ExitCode {
         ["install", ..] if device.is_some() || phone.is_some() => usage(),
         ["phones"] if device.is_none() => phones().await,
         ["phone", "serve", serial, rest @ ..] if device.is_none() => {
-            phone_serve(serial, rest).await
+            phone_serve(serial, rest, policy.clone()).await
         }
         ["install", rest @ ..] => install_host(rest),
         ["skill"] => {
@@ -170,7 +170,11 @@ async fn phones() -> ExitCode {
 /// Runs the host for a phone's browser in the foreground, until the browser or the phone goes
 /// away or the owner stops it.
 #[cfg(any(unix, windows))]
-async fn phone_serve(serial: &str, words: &[&str]) -> ExitCode {
+async fn phone_serve(
+    serial: &str,
+    words: &[&str],
+    policy: nddev_browseruse::diagnostics::Policy,
+) -> ExitCode {
     let mut socket = None;
     let mut observation = "full";
     let mut once = false;
@@ -197,6 +201,9 @@ async fn phone_serve(serial: &str, words: &[&str]) -> ExitCode {
             _ => return usage(),
         }
     }
+    policy.set(nddev_browseruse::diagnostics::Observation::parse(
+        &serde_json::json!(observation),
+    ));
     let server = mobile::adb::Server::from_env();
     // Ctrl-C ends the current link, and the host then closes its sessions as when Chrome ends; it
     // also ends the wait for the phone's browser to come back.
@@ -226,7 +233,7 @@ async fn phone_serve(serial: &str, words: &[&str]) -> ExitCode {
             if once {
                 return refused(
                     "unavailable",
-                    "no browser on this phone exposes DevTools; see `nds-browser-use phones`",
+                    "no browser on this phone exposes DevTools; see `nddev-browseruse phones`",
                 );
             }
             if !waiting {
@@ -239,13 +246,14 @@ async fn phone_serve(serial: &str, words: &[&str]) -> ExitCode {
             }
         };
         waiting = false;
-        let config = match install::load() {
+        let mut config = match install::load() {
             Ok(config) => config,
             Err(error) => {
                 tracing::error!(event.name = "browser.host.failed", outcome = "error", error.type = error.code());
                 return ExitCode::from(2);
             }
         };
+        config.diagnostics = policy.clone();
         tracing::info!(event.name = "browser.phone.connecting", outcome = "pending");
         let served = mobile::serve(
             config,
@@ -315,7 +323,7 @@ fn transport(name: &str) -> Result<device::Transport, ExitCode> {
     let devices = device::Devices::load().map_err(|error| {
         refused(
             error.code(),
-            "devices.json in the nds-browser-use configuration directory is not a valid private device list",
+            "devices.json in the nddev-browseruse configuration directory is not a valid private device list",
         )
     })?;
     devices
@@ -452,7 +460,7 @@ async fn devices() -> ExitCode {
         Err(error) => {
             return refused(
                 error.code(),
-                "devices.json in the nds-browser-use configuration directory is not a valid private device list",
+                "devices.json in the nddev-browseruse configuration directory is not a valid private device list",
             );
         }
     };
@@ -620,9 +628,7 @@ fn host_error(error: &host::HostError) -> &'static str {
 
 #[cfg(any(unix, windows))]
 async fn client(words: &[&str]) -> ExitCode {
-    let client = match BrowserUseClient::for_current_user(
-        NativeIo::new(1).expect("one slot is valid").local_handle(),
-    ) {
+    let client = match BrowserUseClient::for_current_user() {
         Ok(client) => client,
         Err(error) => return failed(&error),
     };
@@ -837,12 +843,11 @@ fn install_host(words: &[&str]) -> ExitCode {
         return usage();
     };
     let installed = directory.and_then(|directory| {
-        let host = std::env::current_exe()
-            .map_err(|_| nddev_device_sync_browser_use::IoError::Unavailable)?;
+        let host = std::env::current_exe().map_err(|_| nddev_browseruse::IoError::Unavailable)?;
         let installation = install::install(&host, &directory, &bun, &executor)?;
         #[cfg(windows)]
         install::register(
-            browser.ok_or(nddev_device_sync_browser_use::IoError::InvalidConfiguration)?,
+            browser.ok_or(nddev_browseruse::IoError::InvalidConfiguration)?,
             &installation.manifest,
         )?;
         Ok(installation)
@@ -852,7 +857,7 @@ fn install_host(words: &[&str]) -> ExitCode {
             print(&serde_json::json!({
                 "manifest": installation.manifest,
                 "config": installation.config,
-                "extension_ids": nddev_device_sync_browser_use::EXTENSION_IDS,
+                "extension_ids": nddev_browseruse::EXTENSION_IDS,
             }));
             ExitCode::SUCCESS
         }
@@ -886,51 +891,4 @@ fn code(error: &Error) -> &'static str {
 fn usage() -> ExitCode {
     eprintln!("{USAGE}");
     ExitCode::from(2)
-}
-
-/// Schema-validated local events. Export follows agent composition (ADR 0015).
-#[cfg(any(unix, windows))]
-struct Telemetry {
-    logger: Option<nddev_device_sync_telemetry::Logger>,
-    provider: opentelemetry_sdk::trace::SdkTracerProvider,
-}
-
-#[cfg(any(unix, windows))]
-impl Telemetry {
-    fn install(host_mode: bool, debug: Option<nddev_device_sync_telemetry::DebugWindow>) -> Self {
-        use opentelemetry::trace::TracerProvider;
-        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder().build();
-        let config = nddev_device_sync_telemetry::Config {
-            service: "nddev-device-sync-browser-use".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
-            repository: "NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use".into(),
-            commit: option_env!("NDS_SOURCE_COMMIT").unwrap_or("unknown").into(),
-            channel: "alpha".into(),
-            standards: "unreleased".into(),
-            environment: if host_mode { "host" } else { "client" }.into(),
-            target_prefixes: vec![
-                "nddev_device_sync_browser_use".into(),
-                "nds_browser_use".into(),
-            ],
-            default_module: "browser-use".into(),
-            debug,
-        };
-        let logger = nddev_device_sync_telemetry::install_with_tracer_to(
-            config,
-            provider.tracer("nds-telemetry"),
-            nddev_device_sync_telemetry::LocalOutput::Stderr,
-        )
-        .ok();
-        Self { logger, provider }
-    }
-}
-
-#[cfg(any(unix, windows))]
-impl Drop for Telemetry {
-    fn drop(&mut self) {
-        if let Some(logger) = self.logger.as_mut() {
-            logger.shutdown();
-        }
-        let _ = self.provider.shutdown();
-    }
 }

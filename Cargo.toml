@@ -1,16 +1,20 @@
 [package]
-name = "nddev-device-sync-browser-use"
-version = "0.0.1-alpha.1"
+name = "nddev-browseruse"
+version = "0.2.5"
 edition = "2024"
 rust-version = "1.99"
-license = "AGPL-3.0-only"
+license = "Apache-2.0"
 authors = ["NDDev OpenNetwork"]
 homepage = "https://nddev.ai"
-repository = "https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use"
+repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse"
+
+[workspace]
+members = ["tools"]
+resolver = "3"
 
 [[bin]]
-name = "nds-browser-use"
-path = "src/bin/nds-browser-use.rs"
+name = "nddev-browseruse"
+path = "src/bin/nddev-browseruse.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -19,14 +23,11 @@ thiserror = "2"
 
 [target.'cfg(any(unix, windows))'.dependencies]
 tracing = "0.1"
-nddev-device-sync-adapter-io = { version = "=0.0.1-alpha.4", git = "https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-agent", rev = "f0e21ef6cab88958479de142370179b779beb2fe" }
-nddev-device-sync-telemetry = { version = "=0.0.1-alpha.11", git = "https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-observability", rev = "98f8a98cd6d9c2e679a5cc566de9a4128dbb34f6" }
-opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
-opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "std"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 getrandom = "0.4"
 percent-encoding = "2.3"
-regex = { version = "1.13", default-features = false, features = ["std", "unicode-perl"] }
+regex = { version = "1.13", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
 sha2 = "0.11"
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }

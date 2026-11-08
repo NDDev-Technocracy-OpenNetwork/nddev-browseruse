@@ -56,6 +56,7 @@ const CDP_RELEASED: u8 = 2;
 
 /// Local installation paths; never operator credentials.
 pub struct Config {
+    pub diagnostics: crate::diagnostics::Policy,
     pub runtime: PathBuf,
     pub bun: PathBuf,
     pub executor: PathBuf,
@@ -67,7 +68,7 @@ pub struct Config {
 
 #[derive(Debug, thiserror::Error)]
 pub enum HostError {
-    #[error("the caller is not the pinned NDS extension")]
+    #[error("the caller is not an admitted browser extension")]
     Origin,
     #[error("another browser-use host owns the runtime directory")]
     Busy,
@@ -299,7 +300,7 @@ impl Drop for PendingWork {
     }
 }
 
-/// Whether Chrome started this host for one of the pinned NDS extension builds.
+/// Whether Chrome started this host for one of the admitted extension builds.
 pub fn admitted(origin: &str) -> bool {
     EXTENSION_IDS
         .iter()
@@ -388,7 +389,6 @@ where
         binary,
         restart: Notify::new(),
     });
-    tracing::info!(event.name = "browser.host.started", outcome = "ready");
     // The activity journal keeps one week within its size bound (docs/observability.md).
     let journal = host.config.activity.clone();
     tokio::task::spawn_blocking(move || {
@@ -816,13 +816,22 @@ impl Host {
             },
             Some("hello") => {
                 let mut state = self.state();
+                let first = !state.connected;
                 state.connected = true;
                 state.enabled = message["enabled"].as_bool() == Some(true);
                 state.contract = message["contract"].as_u64();
                 state.downloads = message["downloads"].as_bool() == Some(true);
                 state.parts = message["parts"].as_bool() == Some(true);
                 state.private_sites = observation::sites(&message["private"]);
-                let profile = observation::Observation::parse(&message["observation"]);
+                let profile = if state.contract == Some(CONTRACT) {
+                    observation::Observation::parse(&message["observation"])
+                } else {
+                    observation::Observation::Off
+                };
+                self.config.diagnostics.set(profile);
+                if first {
+                    tracing::info!(event.name = "browser.host.started", outcome = "ready");
+                }
                 state.user_agent = bounded(message["userAgent"].as_str().unwrap_or_default(), 512);
                 state.extension = bounded(message["version"].as_str().unwrap_or_default(), 32);
                 state.browser = browser_name(&state.user_agent);
@@ -860,7 +869,7 @@ impl Host {
                 let body = serde_json::to_vec(&json!({
                     "type": "about",
                     "version": env!("CARGO_PKG_VERSION"),
-                    "commit": option_env!("NDS_SOURCE_COMMIT").unwrap_or("unknown"),
+                    "commit": option_env!("BROWSERUSE_SOURCE_COMMIT").unwrap_or("unknown"),
                 }))
                 .unwrap_or_default();
                 if let Some(framed) = frame(&body) {
@@ -1471,7 +1480,7 @@ impl Host {
                         .count(),
                     host: Some(view::Build {
                         version: env!("CARGO_PKG_VERSION").to_owned(),
-                        commit: option_env!("NDS_SOURCE_COMMIT")
+                        commit: option_env!("BROWSERUSE_SOURCE_COMMIT")
                             .unwrap_or("unknown")
                             .to_owned(),
                     }),
@@ -2003,7 +2012,7 @@ impl Host {
         timeout_ms: u64,
         expect: Option<Document>,
     ) -> Result<view::Outcome, Refusal> {
-        if !protocol::valid_execution(timeout_ms) || code.trim().is_empty() {
+        if !protocol::valid_execution(timeout_ms) || !protocol::valid_code(code) {
             return Err(Refusal::InvalidRequest);
         }
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);

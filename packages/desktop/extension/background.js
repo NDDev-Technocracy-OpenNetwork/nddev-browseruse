@@ -48,9 +48,7 @@ const SETUP_TIMEOUT_MS = 10_000;
 // While Chrome captures a screenshot of an agent tab, this worker's ghost cursor, the page's
 // scrollbars and the text caret stay out of it; the accessibility labels a labelled screenshot
 // draws stay in.
-const SHOT_STYLE = "nds-screenshot-style";
-const SHOT_HIDE = `(() => { if (document.getElementById("${SHOT_STYLE}")) return; const style = document.createElement("style"); style.id = "${SHOT_STYLE}"; style.textContent = "#nds-ghost-cursor { display: none !important } html { scrollbar-width: none !important } ::-webkit-scrollbar { display: none !important } * { caret-color: transparent !important }"; (document.head ?? document.documentElement).append(style); })()`;
-const SHOT_SHOW = `document.getElementById("${SHOT_STYLE}")?.remove()`;
+const SHOT_CSS = "#nds-ghost-cursor { display: none !important } html { scrollbar-width: none !important } ::-webkit-scrollbar { display: none !important } * { caret-color: transparent !important }";
 // Chrome draws a tab the owner is not looking at about once a second, and Playwright waits for
 // two animation frames before each pointer action: an agent's click in such a tab took two
 // seconds, and a screenshot waited for a frame. Chrome draws a tab that is being captured as if
@@ -622,12 +620,30 @@ async function dispatch(message) {
             if (message.session)
                 return (await command(target, message.method, message.params)) ?? {};
             if (message.method === "Page.captureScreenshot") {
-                await command(target, "Runtime.evaluate", { expression: SHOT_HIDE }).catch(() => undefined);
+                const frame = await chrome.webNavigation
+                    .getFrame({ tabId: message.tab, frameId: 0 })
+                    .catch(() => undefined);
+                still();
+                // The extension stylesheet is outside the document's inline-style policy. Pin removal
+                // to this exact document, and give concurrent captures separate removable leases.
+                const hide = frame?.documentId
+                    ? {
+                        target: { tabId: message.tab, documentIds: [frame.documentId] },
+                        css: `${SHOT_CSS}\n/* capture ${crypto.randomUUID()} */`,
+                        origin: "USER",
+                    }
+                    : undefined;
                 try {
-                    return (await command(target, message.method, message.params)) ?? {};
+                    if (hide)
+                        await chrome.scripting.insertCSS(hide).catch(() => undefined);
+                    still();
+                    const result = (await command(target, message.method, message.params)) ?? {};
+                    still();
+                    return result;
                 }
                 finally {
-                    await command(target, "Runtime.evaluate", { expression: SHOT_SHOW }).catch(() => undefined);
+                    if (hide)
+                        await chrome.scripting.removeCSS(hide).catch(() => undefined);
                 }
             }
             // Setup that would outgrow what a reattach can restore is refused before Chrome sees it; the
@@ -680,7 +696,7 @@ async function dispatch(message) {
                     await drained(previous);
                 await Promise.allSettled([...attached.values()]
                     .filter((held) => earlier.has(held.life))
-                    .map((held) => held.ending));
+                    .flatMap((held) => (held.ending ? [held.ending] : [])));
                 if ([...attached.values()].some((held) => earlier.has(held.life))) {
                     throw new Refusal("busy");
                 }

@@ -59,6 +59,10 @@ class Browser {
   // Tabs whose frames the worker removed foreign iframes from, and cleanups that wait, by tab.
   readonly scripted: number[] = [];
   readonly heldScripts = new Map<number, ReturnType<typeof deferred>>();
+  readonly insertedStyles: unknown[] = [];
+  readonly removedStyles: unknown[] = [];
+  readonly documents = new Map<number, string>();
+  heldStyle: ReturnType<typeof deferred> | undefined;
   readonly menu = new Event();
   // Downloads Chrome knows, by id, and the files and list entries the worker removed.
   readonly downloads = new Map<number, Download>();
@@ -275,13 +279,25 @@ class Browser {
         onChanged: this.downloadChanged,
       },
       scripting: {
+        insertCSS: async (style: unknown) => {
+          this.insertedStyles.push(style);
+          await this.heldStyle?.promise;
+        },
+        removeCSS: async (style: unknown) => {
+          this.removedStyles.push(style);
+        },
         executeScript: async ({ target }: { target: { tabId: number } }) => {
           this.scripted.push(target.tabId);
           await this.heldScripts.get(target.tabId)?.promise;
           return [];
         },
       },
-      webNavigation: { onCreatedNavigationTarget: this.navigationTarget },
+      webNavigation: {
+        onCreatedNavigationTarget: this.navigationTarget,
+        getFrame: async ({ tabId }: { tabId: number }) => ({
+          documentId: this.documents.get(tabId) ?? `document-${tabId}`,
+        }),
+      },
       notifications: {
         create: async (id: string, options: { message: string }) => {
           this.notifications.push({ id, message: options.message });
@@ -335,6 +351,56 @@ async function until<T>(found: () => T | undefined | false): Promise<T> {
 
 const P = 10;
 const Q = 20;
+
+test("a capture stylesheet is removed from its original document on success and failure", async () => {
+  const { browser, send } = await worker({ p: P }, [[1, P]]);
+  await send({ type: "claim", group: "p" })();
+  for (const fails of [false, true]) {
+    if (fails) browser.failing.add("Page.captureScreenshot");
+    await send({ type: "cdp", group: "p", tab: 1, method: "Page.captureScreenshot" })();
+    expect(browser.removedStyles).toEqual(browser.insertedStyles);
+  }
+  const styles = browser.insertedStyles as {
+    css: string;
+    target: { tabId: number; documentIds: string[] };
+  }[];
+  expect(styles).toHaveLength(2);
+  expect(styles[0]?.target).toEqual({ tabId: 1, documentIds: ["document-1"] });
+  expect(styles[0]?.css).not.toBe(styles[1]?.css);
+  expect(browser.evaluated.some((script) => script.includes("nds-screenshot-style"))).toBe(false);
+});
+
+test("a tab taken back during capture preparation receives no screenshot and loses only its own stylesheet", async () => {
+  const { browser, send } = await worker({ p: P }, [[1, P]]);
+  await send({ type: "claim", group: "p" })();
+  const style = deferred();
+  browser.heldStyle = style;
+  const shot = send({ type: "cdp", group: "p", tab: 1, method: "Page.captureScreenshot" });
+  await until(() => browser.insertedStyles.length === 1);
+  browser.move(1, -1);
+  browser.documents.set(1, "replacement-document");
+  style.resolve();
+  expect(await shot()).toMatchObject({ error: { code: "target_closed" } });
+  expect(browser.commands).not.toContain("Page.captureScreenshot 1");
+  expect(browser.removedStyles).toEqual(browser.insertedStyles);
+});
+
+test("overlapping captures have independently removable document stylesheets", async () => {
+  const { browser, send } = await worker({ p: P }, [[1, P]]);
+  await send({ type: "claim", group: "p" })();
+  const capture = deferred();
+  browser.heldCommands.set("Page.captureScreenshot", capture);
+  const first = send({ type: "cdp", group: "p", tab: 1, method: "Page.captureScreenshot" });
+  const second = send({ type: "cdp", group: "p", tab: 1, method: "Page.captureScreenshot" });
+  await until(() => browser.insertedStyles.length === 2);
+  expect(browser.removedStyles).toEqual([]);
+  capture.resolve();
+  await Promise.all([first(), second()]);
+  expect(browser.removedStyles).toHaveLength(2);
+  expect(new Set(browser.removedStyles.map((style) => (style as { css: string }).css)).size).toBe(
+    2,
+  );
+});
 
 test("an attach the owner interrupts by moving the tab is never published and ends", async () => {
   const { browser, send } = await worker({ p: P }, [[1, P]]);

@@ -32,7 +32,7 @@ type AXNode = {
 // The longest a snapshot waits for two animation frames before it reads the accessibility tree.
 const FRAME_WAIT_MS = 120;
 
-export interface AriaRef {
+interface AriaRef {
   role: string;
   name: string;
   ref: string;
@@ -60,7 +60,7 @@ export interface AriaSnapshotResult {
   getSelectorForRef: (ref: string) => string | null;
 }
 
-export function buildShortRefMap({ refs }: { refs: Array<{ ref: string }> }): Map<string, string> {
+function buildShortRefMap({ refs }: { refs: Array<{ ref: string }> }): Map<string, string> {
   const map = new Map<string, string>();
   refs.forEach((entry, index) => {
     map.set(entry.ref, `e${index + 1}`);

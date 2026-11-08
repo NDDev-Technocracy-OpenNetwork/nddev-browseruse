@@ -195,7 +195,7 @@ function bindPredicate(prototype: object): void {
 }
 
 /** Binds the handlers of a routed WebSocket. */
-export function bindWebSocketRoute(prototype: object): void {
+function bindWebSocketRoute(prototype: object): void {
   for (const name of ["onMessage", "onClose"]) {
     around(prototype, name, (_self, args, execution) => {
       if (execution) args[0] = bind(args[0], execution);

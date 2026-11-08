@@ -57,10 +57,7 @@ export function fitToAspectRatio(
 }
 
 /** Output size in device pixels, the longest edge at most `maxSize`, even sides for yuv420p. */
-export function captureSize(
-  css: { width: number; height: number; scale: number },
-  maxSize: number,
-) {
+function captureSize(css: { width: number; height: number; scale: number }, maxSize: number) {
   const scale = Math.min(css.scale || 1, maxSize / Math.max(css.width, css.height));
   const even = (value: number) => Math.max(2, Math.round((value * scale) / 2) * 2);
   return { width: even(css.width), height: even(css.height) };
@@ -69,7 +66,7 @@ export function captureSize(
 let encoder: Promise<string> | undefined;
 
 /** The platform's hardware H.264 encoder that actually encodes a frame here, else libx264. */
-export function h264(): Promise<string> {
+function h264(): Promise<string> {
   encoder ??= (async () => {
     for (const codec of HARDWARE[platform()] ?? []) {
       const works = await new Promise<boolean>((done) => {
@@ -107,7 +104,7 @@ export function h264(): Promise<string> {
 }
 
 /** ffmpeg's arguments for a file: H.264 and AAC in .mp4, .mov and .mkv, VP8 and Opus in .webm. */
-export function ffmpegArguments(options: {
+function ffmpegArguments(options: {
   width: number;
   height: number;
   fps: number;

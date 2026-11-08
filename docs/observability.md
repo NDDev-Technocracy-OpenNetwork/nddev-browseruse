@@ -15,7 +15,7 @@ executor follows it.
 | **Standard** | The host's lifecycle, security and outcome events, such as one per execution with its duration, outcome and error class. No URL, title, locator, value or body. |
 | **Off** | Nothing new is collected or exported: no journal, no recorder, no telemetry. Records not yet written or sent are discarded. Sessions, permissions and the errors agents and the owner see keep working. |
 
-The popup shows the profile and what it collects; `nds-browser-use status` reports the profile the
+The popup shows the profile and what it collects; `nddev-browseruse status` reports the profile the
 host applies. A selected profile is not proof that collection works: the journal itself is.
 
 ## Where the data goes
@@ -23,8 +23,8 @@ host applies. A selected profile is not proof that collection works: the journal
 ```text
 executor (Playwright events, raw) -> NDS.activity -> host (Rust policy) -> activity journal
 host (the browser's own events: dialogs) ---------------------------^          |
-                                                     nds-browser-use activity <-+  (agents)
-host -> NDS telemetry SDK (metadata, Standard and Full) -> local output, NDS export
+                                                     nddev-browseruse activity <-+  (agents)
+host -> explicit bounded metadata sink (Standard and Full) -> local stderr
 ```
 
 - **Activity journal.** The executor only collects what Playwright shows it and hands raw records
@@ -34,15 +34,17 @@ host -> NDS telemetry SDK (metadata, Standard and Full) -> local output, NDS exp
   Playwright listener would keep a dialog open. Retention is one week; each session and the whole
   journal have a size bound. It outlives the session's own area, so an agent can read what an
   earlier session did.
-- **Telemetry.** The host's events follow the SDK's closed event schema, which has no fields for
-  URLs or content. Export follows the SDK's NDS transport once a device has one.
-- **Agents** read the journal with `nds-browser-use activity`. It filters by session, execution,
+- **Metadata diagnostics.** The executable explicitly installs a bounded local stderr writer.
+  It accepts named events, outcomes, error classes, counts and durations, without URL or
+  page-content fields. Off invalidates queued records; changing back to Full does not replay
+  records from the earlier policy. Importing the Rust library initializes no subscriber.
+  An embedding application owns any separately configured exporter.
+- **Agents** read the journal with `nddev-browseruse activity`. It filters by session, execution,
   type, errors only and text, and prints a thin timeline by default and full records by id.
 
-Content in NDS central observability needs a content channel that the observability module does
-not have yet, and an NDS pipeline that is deployed for the owner's devices. Both are outside this
-module. Until they exist, the journal is the agents' complete view and telemetry carries only
-metadata.
+The standalone product contains no NDS telemetry SDK or automatic network exporter.
+An NDS adapter composes its own context and observation transport through the public port.
+The local activity journal remains separate from metadata diagnostics.
 
 ## Private sites and what the owner sees
 

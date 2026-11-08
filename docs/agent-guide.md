@@ -1,17 +1,17 @@
-# nds-browser-use agent guide
+# nddev-browseruse agent guide
 
-`nds-browser-use` lets an agent drive tabs in the owner's own Chrome with Playwright code. The
+`nddev-browseruse` lets an agent drive tabs in the owner's own Chrome with Playwright code. The
 agent's tabs live in a tab group of their own. Read this guide once per task, before the first
 browser command.
 
 ## Sessions
 
 ```bash
-nds-browser-use session new docs           # one short project name per task
-nds-browser-use -s docs -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
-nds-browser-use -s docs -f ./steps.js      # longer code from a file
-nds-browser-use session list
-nds-browser-use session close docs         # also closes the session's tabs
+nddev-browseruse session new docs           # one short project name per task
+nddev-browseruse -s docs -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+nddev-browseruse -s docs -f ./steps.js      # longer code from a file
+nddev-browseruse session list
+nddev-browseruse session close docs         # also closes the session's tabs
 ```
 
 - **One session per task.** Name it with a short word for the task or site, such as `docs`,
@@ -25,7 +25,7 @@ nds-browser-use session close docs         # also closes the session's tabs
   or a quoted heredoc:
 
   ```bash
-  nds-browser-use -s docs -f /dev/stdin <<'EOF'
+  nddev-browseruse -s docs -f /dev/stdin <<'EOF'
   const rows = await state.page.locator("table tr").allTextContents();
   console.log(rows.join("\n"));
   EOF
@@ -76,11 +76,11 @@ several executions; `state` survives between them.
 Tabs can also run in the browser of another of the owner's devices, near its network and region,
 or to spare this one's resources.
 
-- `nds-browser-use devices` lists the configured devices and their status.
+- `nddev-browseruse devices` lists the configured devices and their status.
 - `--device <name>` before a command, or `NDS_BROWSER_DEVICE=<name>`, runs it there:
-  `nds-browser-use --device pc session new docs`, then `nds-browser-use --device pc -s docs -e '...'`.
+  `nddev-browseruse --device pc session new docs`, then `nddev-browseruse --device pc -s docs -e '...'`.
   The code runs on that device, beside its browser, and replies read the same.
-- Artifacts stay on the device. `nds-browser-use --device pc -s docs artifact list` lists them, and
+- Artifacts stay on the device. `nddev-browseruse --device pc -s docs artifact list` lists them, and
   `... artifact shot.png --output ./shot.png` copies one here.
 - Each device has its own sessions, tabs and owner. A device that is off or unreachable answers
   `Error (device_unreachable)`; ask the owner rather than retrying in a loop.
@@ -89,9 +89,9 @@ or to spare this one's resources.
 
 When the owner serves the browser of an Android phone, tabs can run there too.
 
-- `nds-browser-use --phone <serial>` before a command, or `NDS_BROWSER_PHONE=<serial>`, uses that
-  phone's browser: `nds-browser-use --phone R58M12345AB session new shop`.
-- `nds-browser-use phones` lists the phones and their browsers.
+- `nddev-browseruse --phone <serial>` before a command, or `NDS_BROWSER_PHONE=<serial>`, uses that
+  phone's browser: `nddev-browseruse --phone R58M12345AB session new shop`.
+- `nddev-browseruse phones` lists the phones and their browsers.
 - You see only the tabs you open there, with the phone's viewport, user agent and touch input.
 - `Error (unavailable)` means the owner is not serving that phone. Ask the owner, and never
   start `phone serve` or change the phone's settings yourself.
@@ -248,7 +248,7 @@ one exists.
   - The owner can also start and stop it in the extension's popup, "Record what I do", in a tab
     of your group. When the owner says they showed you something, read `recorder events`.
   - **`await recorder.events({ errors?, type?, ids?, exclude?, full? })`**, or
-    `nds-browser-use -s <project> recorder events`, gives the timeline as JSON lines: the person's
+    `nddev-browseruse -s <project> recorder events`, gives the timeline as JSON lines: the person's
     actions (`person-action`), live-region messages (`toast`) and what the pages did meanwhile.
     Each record's `seq` is its id.
   - **`await recorder.frame({ eventId, offset })`**, or `recorder frame <id> --offset 1000`, names
@@ -360,10 +360,10 @@ Secrets are removed and repeats are folded. Read it instead of re-running steps 
 happened:
 
 ```bash
-nds-browser-use -s <project> activity                 # the latest executor's timeline, thin
-nds-browser-use -s <project> activity --errors        # failed requests, actions, console and page errors
-nds-browser-use -s <project> activity --type network --grep /api/ --full
-nds-browser-use -s <project> activity body <sha256>    # a request's stored body
+nddev-browseruse -s <project> activity                 # the latest executor's timeline, thin
+nddev-browseruse -s <project> activity --errors        # failed requests, actions, console and page errors
+nddev-browseruse -s <project> activity --type network --grep /api/ --full
+nddev-browseruse -s <project> activity body <sha256>    # a request's stored body
 ```
 
 A record marked `"private": true` is of a site the owner keeps private: it says that something

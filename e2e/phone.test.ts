@@ -154,6 +154,14 @@ beforeAll(async () => {
     hostname: "127.0.0.1",
     port: 0,
     fetch(request) {
+      if (new URL(request.url).pathname === "/strict-csp") {
+        return new Response("<!doctype html><title>Strict CSP</title><p>Phone capture</p>", {
+          headers: {
+            "content-type": "text/html",
+            "content-security-policy": "default-src 'none'; style-src 'none'; script-src 'none'",
+          },
+        });
+      }
       const pages: Record<string, string> = {
         "/": `<button onclick="c.textContent = Number(c.textContent) + 1">Increment</button><span id="c">0</span>`,
         "/owner": "<p>owner</p>",
@@ -275,6 +283,24 @@ test("a page the agent's tab opens joins its session", async () => {
      return popup.url()`,
   );
   expect(result.body.value).toBe(`${origin}/popup`);
+});
+
+test("phone screenshots preserve strict CSP", async () => {
+  const result = await run(
+    "mobile",
+    `const page = await context.newPage();
+    try {
+      await page.goto("${origin}/strict-csp");
+      await page.evaluate(() => { window.__csp = []; addEventListener("securitypolicyviolation", (event) => window.__csp.push(event.effectiveDirective)); });
+      const cdp = await context.newCDPSession(page);
+      try { await cdp.send("Page.captureScreenshot"); } finally { await cdp.detach(); }
+      const shot = await page.screenshot();
+      const violations = await page.evaluate(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); return window.__csp; });
+      return JSON.stringify({ violations, png: shot.subarray(1, 4).toString() });
+    } finally { await page.close(); }`,
+  );
+  expect(result.code).toBe(0);
+  expect(JSON.parse(String(result.body.value))).toEqual({ violations: [], png: "PNG" });
 });
 
 test("screenshots and owner notifications reach the phone", async () => {

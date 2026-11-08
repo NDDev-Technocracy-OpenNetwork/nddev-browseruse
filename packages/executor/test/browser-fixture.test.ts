@@ -39,6 +39,7 @@ test("a fixture cannot opt out of the sandbox through its options or arguments",
       { args: ["--disable-seccomp-filter-sandbox"] },
       { args: ["--disable-gpu-sandbox"] },
     ]) {
+      // oxlint-disable-next-line typescript/await-thenable -- Bun types return void here; retain its documented async rejection assertion.
       await expect(
         launchFixture(profile, { executablePath: process.execPath, timeout: 5000, ...options }),
       ).rejects.toThrow("fixtures require Chromium sandbox");

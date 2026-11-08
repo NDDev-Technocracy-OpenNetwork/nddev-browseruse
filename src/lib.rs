@@ -17,11 +17,17 @@ mod adapter;
 #[cfg(any(unix, windows))]
 pub mod artifact;
 #[cfg(any(unix, windows))]
+mod cancellation;
+#[cfg(any(unix, windows))]
 pub mod device;
+#[cfg(any(unix, windows))]
+pub mod diagnostics;
 #[cfg(any(unix, windows))]
 pub mod host;
 #[cfg(any(unix, windows))]
 pub mod install;
+#[cfg(any(unix, windows))]
+pub mod io;
 #[cfg(any(unix, windows))]
 pub mod mobile;
 #[cfg(any(unix, windows))]
@@ -34,7 +40,9 @@ mod socket;
 #[cfg(any(unix, windows))]
 pub use adapter::BrowserUseClient;
 #[cfg(any(unix, windows))]
-pub use nddev_device_sync_adapter_io::{CancellationToken, IoError, LocalIo, NativeIo};
+pub use cancellation::CancellationToken;
+#[cfg(any(unix, windows))]
+pub use io::IoError;
 #[cfg(any(unix, windows))]
 use protocol::Document;
 use protocol::Refusal;
@@ -137,9 +145,6 @@ pub trait BrowserUse {
     ) -> impl Future<Output = Result<view::Outcome, Error>> + Send;
 }
 
-/// Canonical compiled-in runtime manifest for this integration.
-pub const MANIFEST: &str = include_str!("../contracts/module.json");
-
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
@@ -169,20 +174,6 @@ mod tests {
             );
         }
         assert_ne!(super::UNPACKED_EXTENSION_ID, super::STORE_EXTENSION_ID);
-    }
-
-    #[test]
-    fn manifest_declares_the_browser_control_boundary() {
-        let manifest: serde_json::Value = serde_json::from_str(super::MANIFEST).unwrap();
-        assert_eq!(manifest["id"], "browser-use");
-        assert_eq!(
-            manifest["capabilities"],
-            serde_json::json!(["control_browser"])
-        );
-        assert_eq!(
-            manifest["permissions"],
-            serde_json::json!(["browser_control"])
-        );
     }
 
     fn decode_base64(text: &str) -> Vec<u8> {

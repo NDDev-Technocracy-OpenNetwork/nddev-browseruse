@@ -1,7 +1,7 @@
 //! Typed control protocol between agent clients and the host.
 //!
 //! One exchange is a request frame, then a reply header frame `{"bytes":N}`
-//! followed by exactly `N` payload bytes, matching `adapter-io` LocalChannel.
+//! followed by exactly `N` payload bytes. Each exchange has one total deadline.
 
 use crate::view;
 use serde::{Deserialize, Serialize};
@@ -9,11 +9,13 @@ use std::time::Duration;
 
 /// Request and header frames, including the newline.
 pub const FRAME_LIMIT: usize = 65_536;
-/// Reply payload; equal to the LocalChannel payload ceiling.
+/// Reply payload ceiling.
 pub const PAYLOAD_LIMIT: usize = 1_048_576;
 /// Executor output kept in a reply; the rest is reported as truncated.
 pub const OUTPUT_LIMIT: usize = 900_000;
-/// One execution, leaving headroom inside the 30 s LocalChannel deadline.
+/// Code accepted for one execution, before serialization or allocation of a request.
+pub const CODE_LIMIT: usize = 60_000;
+/// One execution, leaving headroom for the local control exchange.
 pub const MAX_EXECUTION: Duration = Duration::from_secs(25);
 pub const MAX_SESSIONS: usize = 8;
 pub const MAX_TABS: usize = 32;
@@ -187,6 +189,10 @@ pub fn valid_project(project: &str) -> bool {
 
 pub fn valid_execution(timeout_ms: u64) -> bool {
     (1..=MAX_EXECUTION.as_millis() as u64).contains(&timeout_ms)
+}
+
+pub fn valid_code(code: &str) -> bool {
+    code.len() <= CODE_LIMIT && !code.trim().is_empty()
 }
 
 /// One event the extension reports about its own Chrome work, as the host emits it.
