@@ -81,7 +81,7 @@ No owner profile or native-host registration is used for acceptance.
 
 `just verify-staged /absolute/new/native-packet` runs the checks, builds the release
 host, stages its executor/dependencies/extension and runs acceptance against those
-exact files. Native macOS/Windows CI uploads that tested directory. A new output
+exact files. Full dev macOS/Windows CI uploads that tested directory. A new output
 directory is required; an existing packet is never overwritten.
 
 The shared full Linux check leaves `dist/qualified-linux.zip`: its exact staged native
@@ -89,6 +89,8 @@ packet, measured browser report, extension ZIPs, authentic captures and rendered
 material. The archive contains hidden runtime files and retains executable modes.
 Other supported platforms still run native acceptance through `just verify`;
 the Linux CI result supplies the common store packet.
+Pull requests run `just check` and `just test` on each native target; the full
+dev run qualifies its staged browser/native packet once before promotion.
 
 After promotion to `main`, `release.yml` selects successful check, native and security
 runs from the same `dev` push commit. It assembles their packets without rebuilding the
