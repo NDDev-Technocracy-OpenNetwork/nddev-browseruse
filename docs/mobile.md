@@ -78,12 +78,16 @@ only browser the phone offers, and an app's WebView only when nothing else is th
 - Chrome appends its process id when another browser already holds its name;
 - WebView apps use `webview_devtools_remote_<pid>`.
 
-The ADB server is the one at `ADB_SERVER_SOCKET=tcp:<host>:<port>`. Without it, the link uses
-`ANDROID_ADB_SERVER_PORT` on the loopback, then port 5037. Start it with `adb start-server`.
+The ADB server is declared in installed `common.toml`, `[native.adb].server`; its source default
+is `127.0.0.1:5037`. Start the owner's ADB server with `adb start-server`. An explicit local
+`nddev-browseruse config --adb-server <host:port>` changes the endpoint; restart a running phone
+host after changing it. Connect/exchange deadlines and the shell-output limit are validated
+in the same typed configuration. Nonempty `ADB_SERVER_SOCKET` and `ANDROID_ADB_SERVER_PORT`
+are refused for phone operations: migrate their values to the config and clear them.
 
 ## Agents
 
-`--phone <serial>` before any session command, or `NDS_BROWSER_PHONE=<serial>`, talks to that
+`--phone <serial>` before any session command talks to that
 phone's host. Everything else reads as on the desktop:
 
 ```sh

@@ -9,6 +9,8 @@ mod executor;
 pub use executor::{ActivitySettings, ExecutorSettings, RecorderSettings};
 mod capture;
 pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
+mod native;
+pub use native::{AdbSettings, NativeSettings};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -75,6 +77,7 @@ pub struct Settings {
     pub public: FrontendConfig,
     pub phone_link: PhoneLimits,
     pub executor: ExecutorSettings,
+    pub native: NativeSettings,
 }
 
 impl Settings {
@@ -105,6 +108,7 @@ impl Settings {
         let public = &settings.public;
         if !settings.phone_link.validate()
             || !settings.executor.validate()
+            || !settings.native.validate()
             || public.minimum_host.split('.').count() != 3
             || !public
                 .minimum_host
@@ -242,6 +246,16 @@ secretTimeoutMs = 100
 jpegQuality = 70
 maxEdge = 1280
 frameTargets = 2
+[native]
+runtimeDirectory = ""
+defaultDevice = ""
+defaultPhone = ""
+executionTimeoutMs = 10000
+[native.adb]
+server = "127.0.0.1:5037"
+connectTimeoutMs = 5000
+exchangeTimeoutMs = 10000
+shellBytes = 1048576
 "#;
 
     #[test]

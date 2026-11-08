@@ -71,7 +71,9 @@ const env: Record<string, string> = {
   XDG_STATE_HOME: join(root, "state"),
   NDS_BROWSER_DEVICE: "",
   NDS_BROWSER_PHONE: "",
-  NDS_BROWSER_USE_RUNTIME_DIR: runtime,
+  NDS_BROWSER_USE_RUNTIME_DIR: "",
+  ADB_SERVER_SOCKET: "",
+  ANDROID_ADB_SERVER_PORT: "",
 };
 
 let observer: BrowserContext;
@@ -393,6 +395,8 @@ beforeAll(async () => {
   // read the profile's own host directory.
   const registration = await cli(
     "install",
+    "--runtime-dir",
+    runtime,
     "--bun",
     process.execPath,
     "--executor",
@@ -403,6 +407,10 @@ beforeAll(async () => {
   );
   expect(registration.code).toBe(0);
   configuration = dirname(String(registration.body.config));
+  const common = join(configuration, "common.toml");
+  const current = readFileSync(common, "utf8");
+  expect(current).toContain("frameIntervalMs = 500");
+  writeFileSync(common, current.replace("frameIntervalMs = 500", "frameIntervalMs = 450"));
   const manifest = String(registration.body.manifest);
   const registered = JSON.parse(readFileSync(manifest, "utf8"));
   expect(registered.allowed_origins).toEqual([
@@ -656,6 +664,21 @@ test("the connected extension reports enabled control", async () => {
   expect(status.code).toBe(0);
   expect(status.body.enabled).toBe(true);
   expect(String(status.body.browser)).toStartWith("Chrome/");
+});
+
+test("the executor receives validated operator limits from its own host", async () => {
+  const project = "configuration";
+  await opened(project);
+  try {
+    const result = await run(
+      project,
+      `const settings = await importModule(${JSON.stringify(join(dirname(executorSource), "agent/settings.ts"))}); return settings.executorSettings.recorder.frameIntervalMs`,
+    );
+    expect(result.body.failure).toBeNull();
+    expect(result.body.value).toBe("450");
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
+  }
 });
 
 test("agent code acts in its own tab and the browser shows the result", async () => {
@@ -1133,6 +1156,7 @@ test("a strict mode violation lists every match so the agent can pick one", asyn
       "strict",
       `const page = await context.newPage();
        await page.setContent('<div role="dialog"><button>From</button><button>Send</button><button>Discard</button></div>');
+       await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] button').length === 3, null, { timeout: 5000 });
        try { await page.locator("[role=dialog] button").click({ timeout: 1000 }); return "clicked"; }
        finally { await page.close(); }`,
     );
@@ -2624,18 +2648,40 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
   const devices = join(configuration, "devices.json");
   const missing = join(root, "missing", "nds-browser-use");
   // A device whose CLI answers, though no browser is connected there.
+  const idleConfig = join(root, "idle-config");
+  const idleSettings = join(idleConfig, "nds-browser-use");
+  if (!windows) {
+    mkdirSync(idleSettings, { recursive: true, mode: 0o700 });
+    writeFileSync(
+      join(idleSettings, "common.toml"),
+      readFileSync(join(configuration, "common.toml"), "utf8").replace(
+        `runtimeDirectory = "${runtime}"`,
+        `runtimeDirectory = "${runtime}-idle"`,
+      ),
+      { mode: 0o600 },
+    );
+    cpSync(join(configuration, "profile.toml"), join(idleSettings, "profile.toml"));
+  }
   const idle = windows
     ? {}
     : {
         idle: {
           // A short sibling of the run's own directory keeps its socket path inside sun_path.
-          command: ["/usr/bin/env", `NDS_BROWSER_USE_RUNTIME_DIR=${runtime}-idle`, binary],
+          command: ["/usr/bin/env", `XDG_CONFIG_HOME=${idleConfig}`, binary],
         },
       };
   const configured = { self: { command: [binary] }, broken: { command: [missing] }, ...idle };
   writeFileSync(devices, JSON.stringify({ schema: 1, devices: configured }), { mode: 0o600 });
   const scratch = mkdtempSync(join(tmpdir(), "nds-bu-device-"));
   try {
+    expect((await cli("config", "--default-device", "broken")).code).toBe(0);
+    try {
+      const explicit = await cli("--device", "self", "status");
+      expect(explicit.code).toBe(0);
+      expect(explicit.body.enabled).toBe(true);
+    } finally {
+      expect((await cli("config", "--default-device", "")).code).toBe(0);
+    }
     const listed = (await cli("devices")).body as unknown as Record<string, unknown>[];
     expect(listed).toEqual([
       { name: "broken", transport: "command", error: "device_unreachable" },
@@ -2660,8 +2706,9 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
     // A file's code travels on stdin, and the default device needs no flag.
     const script = join(scratch, "count.js");
     writeFileSync(script, 'return await state.page.locator("#c").textContent()');
+    expect((await cli("config", "--default-device", "self")).code).toBe(0);
     const chosen = Bun.spawn([binary, "-s", "device", "-f", script], {
-      env: { ...env, NDS_BROWSER_DEVICE: "self" },
+      env,
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -2709,6 +2756,7 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
       body: expect.objectContaining({ error: "device_unknown" }),
     });
   } finally {
+    await cli("config", "--default-device", "");
     await cli("--device", "self", "session", "close", "device");
     rmSync(devices, { force: true });
     rmSync(scratch, { recursive: true, force: true });

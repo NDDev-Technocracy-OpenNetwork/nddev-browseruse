@@ -498,6 +498,9 @@ impl Host {
             "Browser.setDownloadBehavior" => self.set_downloads(project, &params),
             "NDS.takeDownload" => self.take_download(project, &params).await,
             "NDS.observation" => Ok(self.observation()),
+            "NDS.executorSettings" => {
+                Ok(serde_json::to_value(&self.config.executor_settings).unwrap_or_default())
+            }
             "NDS.activity" => Ok(self.activity(project, &params).await),
             "NDS.recording" => Ok(self.recording(project, &params).await),
             "NDS.capture" => Ok(self.capture(project, client, &params).await),

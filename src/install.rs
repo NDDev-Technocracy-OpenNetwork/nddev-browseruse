@@ -4,7 +4,7 @@
 //! configuration, and on Windows the user's registry value that names the manifest. Loading
 //! the unpacked extension into a browser remains the owner's explicit action.
 
-use crate::{EXTENSION_IDS, IoError, NATIVE_HOST, host::Config, runtime};
+use crate::{IoError, NATIVE_HOST, host::Config, runtime};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use std::os::unix::fs::OpenOptionsExt;
@@ -170,6 +170,7 @@ struct HostManifest<'a> {
 pub struct Installation {
     pub manifest: PathBuf,
     pub config: PathBuf,
+    pub extension_ids: Vec<String>,
 }
 
 pub fn install(
@@ -177,6 +178,18 @@ pub fn install(
     directory: &Path,
     bun: &Path,
     executor: &Path,
+) -> Result<Installation, IoError> {
+    install_with_options(host, directory, bun, executor, &Default::default(), &[])
+}
+
+/// Validates the complete request before changing operator values or browser registration.
+pub fn install_with_options(
+    host: &Path,
+    directory: &Path,
+    bun: &Path,
+    executor: &Path,
+    values: &crate::configuration::NativeOverrides,
+    additional_ids: &[String],
 ) -> Result<Installation, IoError> {
     for path in [host, directory, bun, executor] {
         if !path.is_absolute() {
@@ -186,18 +199,23 @@ pub fn install(
     if !host.is_file() || !bun.is_file() || !executor.is_file() {
         return Err(IoError::Unavailable);
     }
+    let (extension_ids, admission) = crate::configuration::admission(additional_ids)?;
     let manifest = HostManifest {
         name: NATIVE_HOST,
         description: "nddev-browseruse local host",
         path: host,
         r#type: "stdio",
-        allowed_origins: origins(),
+        allowed_origins: extension_ids
+            .iter()
+            .map(|id| format!("chrome-extension://{id}/"))
+            .collect(),
     };
     let config_path = config_path()?;
     let parent = config_path.parent().ok_or(IoError::InvalidConfiguration)?;
     std::fs::create_dir_all(config_home()?).map_err(|_| IoError::Unavailable)?;
     runtime::private_directory(parent)?;
-    crate::configuration::install(parent)?;
+    crate::configuration::configure(values)?;
+    write_private(&parent.join("admission.json"), &admission)?;
     write_private(
         &config_path,
         &serde_json::to_vec_pretty(&HostConfig {
@@ -215,6 +233,7 @@ pub fn install(
     Ok(Installation {
         manifest: manifest_path,
         config: config_path,
+        extension_ids,
     })
 }
 
@@ -233,8 +252,9 @@ pub fn load() -> Result<Config, IoError> {
     })
 }
 
+#[cfg(test)]
 fn origins() -> Vec<String> {
-    EXTENSION_IDS
+    crate::EXTENSION_IDS
         .iter()
         .map(|id| format!("chrome-extension://{id}/"))
         .collect()

@@ -22,3 +22,9 @@ One common extension can serve either composition. Native messaging admits
 explicit extension origins only; Edge's catalog origin must be added after its
 assigned item ID is known. No credential custody, cloud relay or central content
 export is implemented by this interface.
+
+The installer accepts `--extension-id <assigned ID>` and retains explicit installed IDs on
+reinstallation, including the existing CWS and unpacked identities. The typed, bounded local
+`admission.json` policy admits only exact 32-character Chromium IDs. It is checked before
+executor paths, application configuration or runtime state are read; the browser manifest
+and host enforce the same list. Wildcards are rejected. No future Edge identity is guessed.

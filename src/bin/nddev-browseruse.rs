@@ -13,6 +13,7 @@ use std::{path::PathBuf, time::Duration};
 
 const USAGE: &str = "usage:
   nddev-browseruse --version
+  nddev-browseruse config [--runtime-dir <absolute path>] [--default-device <name>] [--default-phone <serial>] [--adb-server <host:port>]
   nddev-browseruse skill
   nddev-browseruse devices
   nddev-browseruse [--device <name>] status
@@ -27,14 +28,14 @@ const USAGE: &str = "usage:
   nddev-browseruse [--device <name>] -s <project> recorder frame <id> [--offset <ms>] [--recording <id>]
   nddev-browseruse [--device <name>] -s <project> activity [--all] [--type <type>] [--errors] [--grep <text>] [--exec <id>] [--last <n, at most 10000>] [--full]
   nddev-browseruse [--device <name>] -s <project> activity body <sha256>
-  nddev-browseruse install --bun <path> --executor <path> (--browser <chrome|chrome-beta|chrome-dev|chrome-canary|chrome-for-testing|chromium|edge|edge-beta|edge-dev|brave> | --host-dir <path>)
+  nddev-browseruse install --bun <path> --executor <path> (--browser <chrome|chrome-beta|chrome-dev|chrome-canary|chrome-for-testing|chromium|edge|edge-beta|edge-dev|brave> | --host-dir <path>) [--runtime-dir <absolute path>] [--extension-id <assigned catalog ID>]
   nddev-browseruse phones
   nddev-browseruse phone serve <serial> [--socket <name>] [--observation <full|standard|off>] [--once]
   nddev-browseruse --phone <serial> <any session command above>
-NDS_BROWSER_DEVICE names the default device; NDS_BROWSER_PHONE the default phone.";
+Defaults are declared in the installed common.toml/profile.toml; --local bypasses configured device/phone defaults. Device forwarding requires peer version 0.2.5 or later. Legacy NDS browser and ADB environment settings must be migrated.";
 /// How agents use the tool, printed by `nddev-browseruse skill`.
 const AGENT_GUIDE: &str = include_str!("../../docs/agent-guide.md");
-const ARGUMENT_LIMIT: usize = 16;
+const ARGUMENT_LIMIT: usize = 32;
 use nddev_browseruse::protocol::CODE_LIMIT;
 
 #[cfg(not(any(unix, windows)))]
@@ -59,11 +60,48 @@ async fn main() -> ExitCode {
         });
         return ExitCode::SUCCESS;
     }
+    let mut words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let (mut explicit_device, mut explicit_phone, mut local) = (None, None, false);
+    loop {
+        match words.as_slice() {
+            ["--local", rest @ ..] if !local => {
+                local = true;
+                words = rest.to_vec();
+            }
+            ["--device", name, rest @ ..]
+                if explicit_device.is_none() && explicit_phone.is_none() =>
+            {
+                explicit_device = Some((*name).to_owned());
+                words = rest.to_vec();
+            }
+            ["--phone", serial, rest @ ..]
+                if explicit_device.is_none() && explicit_phone.is_none() =>
+            {
+                explicit_phone = Some((*serial).to_owned());
+                words = rest.to_vec();
+            }
+            _ => break,
+        }
+    }
+    // Local bootstrap commands cannot inherit a remote destination or require installed settings.
+    match words.as_slice() {
+        ["install", rest @ ..] if explicit_device.is_none() && explicit_phone.is_none() => {
+            return install_host(rest);
+        }
+        ["config", rest @ ..] if explicit_device.is_none() && explicit_phone.is_none() => {
+            return configure_native(rest);
+        }
+        ["skill"] => {
+            print!("{AGENT_GUIDE}");
+            return ExitCode::SUCCESS;
+        }
+        _ => {}
+    }
     let native = arguments
         .first()
         .is_some_and(|first| first.starts_with("chrome-extension://"));
     // A phone's host runs in the owner's terminal and reports like the one Chrome starts.
-    let host_mode = native || arguments.get(..2) == Some(&["phone".into(), "serve".into()]);
+    let host_mode = native || words.get(..2) == Some(&["phone", "serve"]);
     let policy = nddev_browseruse::diagnostics::Policy::default();
     // Native messaging owns stdout; only the executable installs a local stderr subscriber.
     let _telemetry = if host_mode {
@@ -78,7 +116,8 @@ async fn main() -> ExitCode {
         None
     };
     if native {
-        // A foreign caller is refused before any local configuration is read.
+        // Only the bounded admission policy is read before the caller is admitted. Executor
+        // paths, application values and runtime state are read after this decision.
         if !host::admitted(&arguments[0]) {
             tracing::error!(event.name = "browser.host.failed", outcome = "error", error.type = host_error(&host::HostError::Origin));
             return ExitCode::from(2);
@@ -105,30 +144,41 @@ async fn main() -> ExitCode {
         drop(_telemetry);
         std::process::exit(code);
     }
-    let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    if nddev_browseruse::configuration::reject_legacy_environment().is_err() {
+        return refused(
+            "invalid_configuration",
+            "legacy browser/ADB environment settings are no longer used; migrate with the local config command and clear them before running an operation",
+        );
+    }
+    let settings = match nddev_browseruse::configuration::effective() {
+        Ok(settings) => settings,
+        Err(error) => return failed(&Error::Io(error)),
+    };
     // A device runs the command with its own CLI; the guide, the device list and installing stay
     // here.
-    let chosen = std::env::var(DEVICE_VARIABLE)
-        .ok()
-        .filter(|name| !name.is_empty());
-    let (device, words) = match words.as_slice() {
-        ["--device", name, rest @ ..] => (Some((*name).to_owned()), rest.to_vec()),
-        _ => (chosen, words),
-    };
-    // A phone's host and its clients use the phone's own runtime directory.
-    let chosen_phone = std::env::var(PHONE_VARIABLE)
-        .ok()
-        .filter(|serial| !serial.is_empty());
-    let (phone, words) = match words.as_slice() {
-        _ if device.is_some() => (None, words),
-        ["--phone", serial, rest @ ..] => (Some((*serial).to_owned()), rest.to_vec()),
-        ["phone", "serve", serial, ..] => (Some((*serial).to_owned()), words),
-        _ => (chosen_phone, words),
+    let device = explicit_device.or_else(|| {
+        (!local && explicit_phone.is_none() && !settings.native.default_device.is_empty())
+            .then(|| settings.native.default_device.clone())
+    });
+    let phone = if device.is_some() {
+        None
+    } else {
+        explicit_phone.or_else(|| match words.as_slice() {
+            ["phone", "serve", serial, ..] => Some((*serial).to_owned()),
+            _ => (!local && !settings.native.default_phone.is_empty())
+                .then(|| settings.native.default_phone.clone()),
+        })
     };
     if let Some(serial) = &phone
         && nddev_browseruse::choose_phone(serial).is_err()
     {
         return refused("invalid_request", "the phone serial is invalid");
+    }
+    if phone.is_some() && nddev_browseruse::configuration::adb().is_err() {
+        return refused(
+            "invalid_configuration",
+            "migrate ADB endpoint settings into common.toml before using a phone",
+        );
     }
     match words.as_slice() {
         ["install", ..] if device.is_some() || phone.is_some() => usage(),
@@ -159,13 +209,19 @@ async fn main() -> ExitCode {
 
 #[cfg(any(unix, windows))]
 const DEVICE_VARIABLE: &str = "NDS_BROWSER_DEVICE";
-#[cfg(any(unix, windows))]
-const PHONE_VARIABLE: &str = "NDS_BROWSER_PHONE";
 
 /// The phones the ADB server knows and the browsers each exposes DevTools for.
 #[cfg(any(unix, windows))]
 async fn phones() -> ExitCode {
-    match mobile::phones(&mobile::adb::Server::from_env()).await {
+    let settings = match nddev_browseruse::configuration::adb() {
+        Ok(settings) => settings,
+        Err(error) => return failed(&Error::Io(error)),
+    };
+    let server = match mobile::adb::Server::configured(settings) {
+        Ok(server) => server,
+        Err(_) => return refused("invalid_configuration", "invalid ADB settings"),
+    };
+    match mobile::phones(&server).await {
         Ok(phones) => {
             print(&serde_json::json!({ "phones": phones }));
             ExitCode::SUCCESS
@@ -217,7 +273,14 @@ async fn phone_serve(
     policy.set(nddev_browseruse::diagnostics::Observation::parse(
         &serde_json::json!(observation),
     ));
-    let server = mobile::adb::Server::from_env();
+    let settings = match nddev_browseruse::configuration::adb() {
+        Ok(settings) => settings,
+        Err(error) => return failed(&Error::Io(error)),
+    };
+    let server = match mobile::adb::Server::configured(settings) {
+        Ok(server) => server,
+        Err(_) => return refused("invalid_configuration", "invalid ADB settings"),
+    };
     // Ctrl-C ends the current link, and the host then closes its sessions as when Chrome ends; it
     // also ends the wait for the phone's browser to come back.
     let (stop, stopped) = tokio::sync::watch::channel(false);
@@ -760,8 +823,12 @@ struct Execution {
 #[cfg(any(unix, windows))]
 impl Execution {
     fn parse(mut words: &[&str]) -> Option<Self> {
+        let configured = nddev_browseruse::configuration::effective()
+            .ok()?
+            .native
+            .execution_timeout_ms;
         let (mut code, mut timeout, mut expect, mut json) =
-            (None, Duration::from_secs(10), None, false);
+            (None, Duration::from_millis(configured), None, false);
         loop {
             let (flag, value, rest) = match words {
                 [] => break,
@@ -846,8 +913,36 @@ fn read_code(path: &str) -> Option<String> {
 }
 
 #[cfg(any(unix, windows))]
+fn configure_native(words: &[&str]) -> ExitCode {
+    let mut values = nddev_browseruse::configuration::NativeOverrides::default();
+    let mut rest = words;
+    while let [flag, value, tail @ ..] = rest {
+        match *flag {
+            "--runtime-dir" => values.runtime_directory = Some((*value).into()),
+            "--default-device" => values.default_device = Some((*value).into()),
+            "--default-phone" => values.default_phone = Some((*value).into()),
+            "--adb-server" => values.adb_server = Some((*value).into()),
+            _ => return usage(),
+        }
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        return usage();
+    }
+    match nddev_browseruse::configuration::configure(&values) {
+        Ok(()) => {
+            print(&serde_json::json!({ "configured": true, "restart_required": true }));
+            ExitCode::SUCCESS
+        }
+        Err(error) => failed(&Error::Io(error)),
+    }
+}
+
+#[cfg(any(unix, windows))]
 fn install_host(words: &[&str]) -> ExitCode {
     let (mut bun, mut executor, mut directory) = (None, None, None);
+    let mut values = nddev_browseruse::configuration::NativeOverrides::default();
+    let mut additional_ids = Vec::new();
     #[cfg(windows)]
     let mut browser = None;
     let mut rest = words;
@@ -855,6 +950,9 @@ fn install_host(words: &[&str]) -> ExitCode {
         match *flag {
             "--bun" => bun = Some(PathBuf::from(value)),
             "--executor" => executor = Some(PathBuf::from(value)),
+            "--runtime-dir" => values.runtime_directory = Some((*value).into()),
+            "--adb-server" => values.adb_server = Some((*value).into()),
+            "--extension-id" if additional_ids.len() < 8 => additional_ids.push((*value).into()),
             // Windows browsers find hosts only through the registry key of a named browser.
             "--host-dir" if cfg!(unix) => directory = Some(Ok(PathBuf::from(value))),
             "--browser" => match install::Browser::parse(value) {
@@ -876,7 +974,14 @@ fn install_host(words: &[&str]) -> ExitCode {
     };
     let installed = directory.and_then(|directory| {
         let host = std::env::current_exe().map_err(|_| nddev_browseruse::IoError::Unavailable)?;
-        let installation = install::install(&host, &directory, &bun, &executor)?;
+        let installation = install::install_with_options(
+            &host,
+            &directory,
+            &bun,
+            &executor,
+            &values,
+            &additional_ids,
+        )?;
         #[cfg(windows)]
         install::register(
             browser.ok_or(nddev_browseruse::IoError::InvalidConfiguration)?,
@@ -889,7 +994,7 @@ fn install_host(words: &[&str]) -> ExitCode {
             print(&serde_json::json!({
                 "manifest": installation.manifest,
                 "config": installation.config,
-                "extension_ids": nddev_browseruse::EXTENSION_IDS,
+                "extension_ids": installation.extension_ids,
             }));
             ExitCode::SUCCESS
         }

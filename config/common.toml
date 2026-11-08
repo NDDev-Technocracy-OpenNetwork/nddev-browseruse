@@ -1,4 +1,5 @@
-# Public extension values. See crates/contract/src/lib.rs for units, scope and bounds.
+# Application values. Only [public] is projected to the extension. Native/executor values
+# stay local. See crates/contract for units, application boundaries and validation.
 [public]
 minimumHost = "0.2.5"
 consentRevision = 1
@@ -50,3 +51,15 @@ secretTimeoutMs = 2000
 jpegQuality = 70
 maxEdge = 1280
 frameTargets = 32
+
+[native]
+runtimeDirectory = ""
+defaultDevice = ""
+defaultPhone = ""
+executionTimeoutMs = 10000
+
+[native.adb]
+server = "127.0.0.1:5037"
+connectTimeoutMs = 5000
+exchangeTimeoutMs = 10000
+shellBytes = 1048576

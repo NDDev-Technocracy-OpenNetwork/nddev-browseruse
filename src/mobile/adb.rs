@@ -3,14 +3,15 @@
 //! connection (`host:transport:<serial>`, then `localabstract:<name>`), so nothing listens on
 //! this machine and no `adb forward` is left behind.
 
-use std::io::{Error, ErrorKind, Result};
+use crate::configuration::AdbSettings;
+use std::{
+    io::{Error, ErrorKind, Result},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-
-/// The most a shell command's output may be.
-const SHELL_LIMIT: usize = 1024 * 1024;
 
 /// One device the ADB server reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,41 +22,47 @@ pub struct Device {
     pub model: Option<String>,
 }
 
-/// The ADB server this machine reaches: `ADB_SERVER_SOCKET=tcp:<host>:<port>`, else
-/// `ANDROID_ADB_SERVER_PORT` on the loopback, else the loopback's port 5037.
-#[derive(Clone, Debug)]
+/// An explicitly configured existing ADB server; no process environment selects it.
+#[derive(Clone)]
 pub struct Server {
-    address: String,
+    settings: AdbSettings,
 }
 
 impl Server {
-    pub fn from_env() -> Self {
-        let address = std::env::var("ADB_SERVER_SOCKET")
-            .ok()
-            .and_then(|socket| socket.strip_prefix("tcp:").map(str::to_owned))
-            .or_else(|| {
-                std::env::var("ANDROID_ADB_SERVER_PORT")
-                    .ok()
-                    .filter(|port| port.parse::<u16>().is_ok())
-                    .map(|port| format!("127.0.0.1:{port}"))
-            })
-            .unwrap_or_else(|| "127.0.0.1:5037".to_owned());
-        Self { address }
+    pub fn configured(settings: AdbSettings) -> Result<Self> {
+        if !settings.validate() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "invalid ADB configuration",
+            ));
+        }
+        Ok(Self { settings })
     }
 
-    pub fn at(address: impl Into<String>) -> Self {
-        Self {
-            address: address.into(),
-        }
+    async fn bounded<T>(&self, future: impl std::future::Future<Output = Result<T>>) -> Result<T> {
+        tokio::time::timeout(
+            Duration::from_millis(self.settings.exchange_timeout_ms),
+            future,
+        )
+        .await
+        .map_err(|_| Error::new(ErrorKind::TimedOut, "ADB exchange deadline expired"))?
     }
 
     async fn connect(&self) -> Result<TcpStream> {
-        let stream = TcpStream::connect(&self.address).await?;
+        let stream = tokio::time::timeout(
+            Duration::from_millis(self.settings.connect_timeout_ms),
+            TcpStream::connect(&self.settings.server),
+        )
+        .await
+        .map_err(|_| Error::new(ErrorKind::TimedOut, "ADB connect deadline expired"))??;
         stream.set_nodelay(true)?;
         Ok(stream)
     }
 
     pub async fn devices(&self) -> Result<Vec<Device>> {
+        self.bounded(self.devices_inner()).await
+    }
+    async fn devices_inner(&self) -> Result<Vec<Device>> {
         let mut stream = self.connect().await?;
         request(&mut stream, "host:devices-l").await?;
         let text = String::from_utf8_lossy(&sized(&mut stream).await?).into_owned();
@@ -64,14 +71,17 @@ impl Server {
 
     /// A shell command's output on the device, at most 1 MiB.
     pub async fn shell(&self, serial: &str, command: &str) -> Result<String> {
+        self.bounded(self.shell_inner(serial, command)).await
+    }
+    async fn shell_inner(&self, serial: &str, command: &str) -> Result<String> {
         let mut stream = self.transport(serial).await?;
         request(&mut stream, &format!("shell:{command}")).await?;
         let mut output = Vec::new();
         (&mut stream)
-            .take(SHELL_LIMIT as u64 + 1)
+            .take(self.settings.shell_bytes as u64 + 1)
             .read_to_end(&mut output)
             .await?;
-        if output.len() > SHELL_LIMIT {
+        if output.len() > self.settings.shell_bytes {
             return Err(Error::new(ErrorKind::InvalidData, "shell output too large"));
         }
         Ok(String::from_utf8_lossy(&output).into_owned())
@@ -79,6 +89,9 @@ impl Server {
 
     /// A raw stream to the abstract unix socket `name` on the device.
     pub async fn open(&self, serial: &str, name: &str) -> Result<TcpStream> {
+        self.bounded(self.open_inner(serial, name)).await
+    }
+    async fn open_inner(&self, serial: &str, name: &str) -> Result<TcpStream> {
         let mut stream = self.transport(serial).await?;
         request(&mut stream, &format!("localabstract:{name}")).await?;
         Ok(stream)
@@ -262,7 +275,13 @@ mod tests {
                 });
             }
         });
-        let server = Server::at(address);
+        let server = Server::configured(AdbSettings {
+            server: address.to_string(),
+            connect_timeout_ms: 1000,
+            exchange_timeout_ms: 5000,
+            shell_bytes: 1_048_576,
+        })
+        .unwrap();
         let devices = server.devices().await.unwrap();
         assert_eq!(devices[0].serial, "emulator-5580");
         assert_eq!(
@@ -286,5 +305,35 @@ mod tests {
             server.open("bad serial", "x").await.unwrap_err().kind(),
             ErrorKind::InvalidInput
         );
+    }
+    #[tokio::test]
+    async fn an_adb_server_that_never_acknowledges_reaches_its_exchange_deadline() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let holder = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut header = [0u8; 4];
+            stream.read_exact(&mut header).await.unwrap();
+            let size = usize::from_str_radix(std::str::from_utf8(&header).unwrap(), 16).unwrap();
+            let mut request = vec![0u8; size];
+            stream.read_exact(&mut request).await.unwrap();
+            let mut end = [0];
+            assert_eq!(stream.read(&mut end).await.unwrap(), 0);
+        });
+        let server = Server::configured(AdbSettings {
+            server: address.to_string(),
+            connect_timeout_ms: 100,
+            exchange_timeout_ms: 200,
+            shell_bytes: 4096,
+        })
+        .unwrap();
+        assert_eq!(
+            server.devices().await.unwrap_err().kind(),
+            ErrorKind::TimedOut
+        );
+        tokio::time::timeout(Duration::from_secs(2), holder)
+            .await
+            .unwrap()
+            .unwrap();
     }
 }

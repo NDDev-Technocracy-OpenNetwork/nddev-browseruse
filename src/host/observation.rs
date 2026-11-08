@@ -39,11 +39,12 @@ impl Host {
                 }
             }
         }
-        notify(&mut state, &self.config.diagnostics.epoch_token());
+        notify(&mut state, &self.config.diagnostics);
     }
 
     pub(super) fn observation(&self) -> Value {
-        json!({ "profile": self.config.diagnostics.profile().as_str(), "epoch": self.config.diagnostics.epoch_token() })
+        let (profile, epoch) = self.config.diagnostics.snapshot();
+        json!({ "profile": profile.as_str(), "epoch": epoch })
     }
 
     pub(super) fn set_private(&self, sites: Vec<String>) {
@@ -62,12 +63,13 @@ impl Host {
                 writer.set_private(&sites);
             }
         }
-        notify(&mut state, &self.config.diagnostics.epoch_token());
+        notify(&mut state, &self.config.diagnostics);
     }
 }
 
-fn notify(state: &mut State, epoch: &str) {
-    let profile = state.observation.as_str();
+fn notify(state: &mut State, policy: &crate::diagnostics::Policy) {
+    let (profile, epoch) = policy.snapshot();
+    let profile = profile.as_str();
     let targets: Vec<(String, String)> = state
         .sessions
         .iter()
