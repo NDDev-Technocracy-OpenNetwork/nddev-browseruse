@@ -2595,6 +2595,33 @@ test("a private site keeps its content out of the journal, and the popup shows t
       expect(await popup.evaluate(() => document.documentElement.dir)).toBe(
         language === "ar" ? "rtl" : "ltr",
       );
+      const legalUrl = `chrome-extension://${extensionId}/licenses/${language}.html`;
+      expect(await popup.locator("#licenses-link").getAttribute("href")).toBe(legalUrl);
+      const [legal] = await Promise.all([
+        observer.waitForEvent("page"),
+        popup.locator("#licenses-link").click(),
+      ]);
+      try {
+        await legal.waitForURL(legalUrl);
+        await legal.locator("details").first().waitFor();
+        expect(await legal.locator("details").count()).toBeGreaterThanOrEqual(10);
+        expect(await legal.locator("body").textContent()).toContain("Apache License");
+        expect(await legal.locator("body").textContent()).toContain("SIL OPEN FONT LICENSE");
+        expect(await legal.evaluate(() => document.documentElement.lang)).toBe(language);
+        expect(await legal.evaluate(() => document.documentElement.dir)).toBe(
+          language === "ar" ? "rtl" : "ltr",
+        );
+        await legal.evaluate(() => document.fonts.ready);
+        if (process.env.NDS_E2E_SHOTS)
+          await legal.screenshot({
+            path: join(process.env.NDS_E2E_SHOTS, `licenses-${language}.png`),
+          });
+        await legal.emulateMedia({ colorScheme: "dark" });
+        await legal.waitForFunction(() => document.documentElement.dataset.theme === "dark");
+      } finally {
+        await legal.close();
+        await popup.bringToFront();
+      }
     }
     await popup.screenshot({ path: join(root, "popup-agent-tab.png") });
     if (process.env.NDS_E2E_SHOTS)

@@ -1,0 +1,48 @@
+{
+  "name": "js-yaml",
+  "version": "4.3.2",
+  "description": "YAML 1.2 parser and serializer",
+  "keywords": [
+    "yaml",
+    "parser",
+    "serializer",
+    "pyyaml"
+  ],
+  "author": "Vladimir Zapparov <dervus.grim@gmail.com>",
+  "contributors": [
+    "Aleksey V Zapparov <ixti@member.fsf.org> (http://www.ixti.net/)",
+    "Vitaly Puzrin <vitaly@rcdesign.ru> (https://github.com/puzrin)",
+    "Martin Grenfell <martin.grenfell@gmail.com> (http://got-ravings.blogspot.com)"
+  ],
+  "license": "MIT",
+  "repository": "nodeca/js-yaml",
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/puzrin"
+    },
+    {
+      "type": "github",
+      "url": "https://github.com/sponsors/nodeca"
+    }
+  ],
+  "files": [
+    "index.js",
+    "lib/",
+    "dist/"
+  ],
+  "publishConfig": {
+    "tag": "v4-legacy"
+  },
+  "module": "./dist/js-yaml.mjs",
+  "exports": {
+    ".": {
+      "import": "./dist/js-yaml.mjs",
+      "require": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "unpkg": "dist/js-yaml.min.js",
+  "jsdelivr": "dist/js-yaml.min.js",
+  "private": true
+}

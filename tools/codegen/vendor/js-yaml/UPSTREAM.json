@@ -1,0 +1,136 @@
+{
+  "package": "js-yaml",
+  "version": "4.3.2",
+  "source": "https://registry.npmjs.org/js-yaml/4.3.2",
+  "release": "https://github.com/nodeca/js-yaml/releases/tag/4.3.2",
+  "archiveSha256": "c7b241d2224cf9253ff53854aa4cee87da91bd889c4d0fa3a3ffd1041ecee5b1",
+  "integrity": "sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==",
+  "originalManifest": {
+    "name": "js-yaml",
+    "version": "4.3.2",
+    "description": "YAML 1.2 parser and serializer",
+    "keywords": [
+      "yaml",
+      "parser",
+      "serializer",
+      "pyyaml"
+    ],
+    "author": "Vladimir Zapparov <dervus.grim@gmail.com>",
+    "contributors": [
+      "Aleksey V Zapparov <ixti@member.fsf.org> (http://www.ixti.net/)",
+      "Vitaly Puzrin <vitaly@rcdesign.ru> (https://github.com/puzrin)",
+      "Martin Grenfell <martin.grenfell@gmail.com> (http://got-ravings.blogspot.com)"
+    ],
+    "license": "MIT",
+    "repository": "nodeca/js-yaml",
+    "funding": [
+      {
+        "type": "github",
+        "url": "https://github.com/sponsors/puzrin"
+      },
+      {
+        "type": "github",
+        "url": "https://github.com/sponsors/nodeca"
+      }
+    ],
+    "files": [
+      "index.js",
+      "lib/",
+      "bin/",
+      "dist/"
+    ],
+    "publishConfig": {
+      "tag": "v4-legacy"
+    },
+    "bin": {
+      "js-yaml": "bin/js-yaml.js"
+    },
+    "module": "./dist/js-yaml.mjs",
+    "exports": {
+      ".": {
+        "import": "./dist/js-yaml.mjs",
+        "require": "./index.js"
+      },
+      "./package.json": "./package.json"
+    },
+    "scripts": {
+      "lint": "eslint .",
+      "lint-fix": "eslint . --fix",
+      "test": "npm run lint && npm run test:core && npm run test:build",
+      "test:core": "node --test test/core/*.test.*",
+      "test:build": "npm run build && node --test test/build/*.test.*",
+      "coverage": "npm run build && c8 --include 'lib/**' -r text -r html -r lcov node --test test/core/*.test.*",
+      "build": "node support/build-dist.mjs",
+      "build:demo": "npm run lint && node support/build_demo.mjs",
+      "gh-demo": "npm run build:demo && gh-pages -d demo -f",
+      "prepack": "npm test && npm run build"
+    },
+    "unpkg": "dist/js-yaml.min.js",
+    "jsdelivr": "dist/js-yaml.min.js",
+    "dependencies": {
+      "argparse": "^2.0.1"
+    },
+    "devDependencies": {
+      "@babel/core": "8.0.1",
+      "@babel/preset-env": "8.0.1",
+      "@rollup/plugin-commonjs": "29.0.3",
+      "@rollup/plugin-terser": "0.4.4",
+      "c8": "^11.0.0",
+      "codemirror": "^5.65.21",
+      "eslint": "^9.39.4",
+      "fast-check": "^4.8.0",
+      "gh-pages": "^6.3.0",
+      "neostandard": "^0.13.0",
+      "tinybench": "^6.0.2",
+      "vite": "7.3.6",
+      "vite-plugin-node-polyfills": "^0.28.0",
+      "vite-plugin-singlefile": "^2.3.3",
+      "workerpool": "^10.0.2"
+    }
+  },
+  "files": {
+    "LICENSE": "a07bc24468b9654ce76a547d47a2db282d07733b715db4c73a98bd63961f9550",
+    "lib/type/binary.js": "9dd6a70eb318a123fdc11a36d613419d79535b6ecf105bd865de3a5cbbb60e7c",
+    "lib/type/bool.js": "cc0d255ac6c55064421c19bbea312dcb9e22aee49fa9f8461723d9fbf7a0f8b3",
+    "lib/common.js": "72216ccee36a52ece3f21f2d58a679c14c1483201ef6cbbfc4a1aa9cb6d34c9c",
+    "lib/schema/core.js": "201ffb119aad04c9397df088452e00910becab9a43a3b3a392370878646c06ad",
+    "lib/schema/default.js": "1c4c9573b4c05ce47391c6bcba10401385d8d6a4d596c1c0fd1d6ea664f97ea2",
+    "lib/dumper.js": "695c80b3c310ef3f6fbd232bbcd3f82464917a008c24f1e05b560f35c20116a0",
+    "lib/exception.js": "9ef16628112beacc7497c3f3d0ab001c66c2db501f9e21fad4c30e7cd21d1d10",
+    "lib/schema/failsafe.js": "8e109fccabab5c066b66113f5d68bb74372f48bf589de39e44ed26432a98a27a",
+    "lib/type/float.js": "42b4d238e5d00267fe126996b912f34506d273c39725524d662626bb9e2d4e7e",
+    "index.js": "e85d524fcd45466669dfc37618284e0c53ccaaf3f4bef1e23cd25ec6c43120bc",
+    "lib/type/int.js": "9d428a6e6de891a52b2b5ebd2bf09f9d1f9506514aaf35c6428f0111ecf86fdb",
+    "dist/js-yaml.js": "d4370eaa1b657d25595f0b426de5372de8f001661415ceac8ba043c1c06de7d2",
+    "dist/js-yaml.min.js": "32391560601990bb6e0daabd8106a35a6a539de088532413931a70a4cb4f4769",
+    "lib/schema/json.js": "b08f46efd2c45c46c6d3eaf9b05489356d80391c5f7d5094fb8ec7713e796281",
+    "lib/loader.js": "88a97ccd655f8eb9d81af9b51ab9ddafbab9dc545337e772ba922ab062f8b72d",
+    "lib/type/map.js": "6dd30a02cabaccf71c230464537bda5785093da80cd3319ed3a6481206e2ec7d",
+    "lib/type/merge.js": "4cd0343e63f3c3d7cea620cf122e3dd8f8d1c4c4105d384e8d82d35ae154d1e2",
+    "lib/type/null.js": "5eea804da258ba10fa736199ed0cef9d89dbb01eac1c1bd3609a79a132d1885e",
+    "lib/type/omap.js": "8a865841abeb5f12a30f39f095967b6ac05ef6240e78872573fb23e8c9b5c47f",
+    "lib/type/pairs.js": "f9eb5d2dc3cdbf7dd802e0a62b5aa2d09eedeb0509b71a247ebdad223315d6a5",
+    "lib/schema.js": "dd26a9e56d934099eb53e04f242ed1962660e4e64697c300ff5c4bc1a83165da",
+    "lib/type/seq.js": "3a38b7f3242737c2e21462c42a8da1682325686cb2b30dc3630e515cf9c45522",
+    "lib/type/set.js": "fa5b815c6334def52dae5b58193d3798f8e53558f6c7f48a643898e996333dd7",
+    "lib/snippet.js": "c9180c66091356e16a750c07cbc21ee477d6d07e7c39b6a8622e5882cf85326d",
+    "lib/type/str.js": "1f8725eac2dc7bed4b91610f21796ed3c057cee44b81a1ae8cc9beb9cd6c63ff",
+    "lib/type/timestamp.js": "54e2070e0319d7fa3becd426dd5bfdb822b9602bd4a3c366976cbaa2278bdb5c",
+    "lib/type.js": "a595092ee9fb6901769201ff7e5a485ee5f501bd1519d209af93b37dd2314a32",
+    "dist/js-yaml.js.map": "4128eeb7f1b68e6ec8c8a2016d548c0a5157547b338f70ce9fca00b474653ca8",
+    "dist/js-yaml.min.js.map": "8d0c35eaff494d5b5883d3900f35b56b52aabf158d02a66255811e43a6d88aa2",
+    "dist/js-yaml.mjs.map": "42dc84e905d9164e1dc81a33282a13fd0a1fb751ddde5ad69bbc523fc822c363",
+    "README.md": "aa65504ff91c42c9f5159b66e4f4e398fe6b0df07740ef37e61984220cc7a7c4",
+    "lib/index_vite_proxy.tmp.mjs": "a846cc31e1d31c304edaf94c48624568b699803a79ae2ee88d6e5c66e49552f7",
+    "dist/js-yaml.mjs": "cea276c7e15f409a1adbe5d177aba7824398a474f7cf702bd57962c7d570636f"
+  },
+  "removedFiles": [
+    "bin/js-yaml.js"
+  ],
+  "modifications": [
+    "Omit unused standalone CLI entry and argparse dependency.",
+    "Omit upstream development scripts/dependencies from the library-only package.",
+    "Set private=true; no publication under the upstream package name."
+  ],
+  "scope": "build-only Hey API schema generation; no product runtime/store inclusion"
+}

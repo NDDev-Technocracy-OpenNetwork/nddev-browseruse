@@ -235,5 +235,17 @@
   },
   "ageUnit": {
     "message": "{v1, number} {v2, select, second {ث} minute {د} hour {س} day {ي} other {}}"
+  },
+  "licenses": {
+    "message": "التراخيص"
+  },
+  "licensesPageTitle": {
+    "message": "التراخيص والإشعارات"
+  },
+  "licensesPageDescription": {
+    "message": "الإشعارات الأصلية لمكونات الامتداد. يتضمن ملف تثبيت المضيف الأصلي والمنفّذ إشعاراتهما."
+  },
+  "sourceLink": {
+    "message": "الشفرة المصدرية"
   }
 }

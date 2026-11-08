@@ -106,6 +106,11 @@ remain owner steps after the card exists.
 
 ## Public UI and contracts
 
+The popup's Licenses link opens a local screen in the selected language, with the
+original Apache/MIT, bundled npm, design-system and font notices. It works without
+a native-host connection and follows the system theme. Native-host/executor notices
+are included in their separate installation packet.
+
 The popup uses the canonical Apache OpenNetwork DS release pinned in
 `design-system.lock.json`. The vendored web package is copied unchanged and
 checked by digest. Product font faces come from that release's verified font
@@ -124,6 +129,12 @@ by the schema producer. `config/common.toml`, `dev.toml` and `production.toml`
 are validated by the same typed loader, which rejects duplicate and unknown
 values. `just generate` produces the shipped public projection. Check reads
 only; test rebuilds generated files in an isolated output directory to catch drift.
+
+The build-only schema generator uses the unchanged library files of js-yaml 4.3.2.
+Its unused CLI/argparse dependency is omitted from a private local library distribution.
+The original MIT notice, upstream npm integrity and per-file digests are retained under
+`tools/codegen/vendor/js-yaml`; check validates them and test proves identical generated
+contracts. This build-only directory is excluded from native and store packets.
 
 ## Preparing a distribution without registering a browser
 

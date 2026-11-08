@@ -52,7 +52,7 @@
   ul.chips li { display: inline-flex; align-items: center; gap: var(--space-1); padding-inline-start: var(--space-2); border-radius: var(--radius-pill); border: var(--border-width-thin) solid var(--border-subtle); background: var(--surface-sunken); font-size: var(--text-size-caption); }
   ul.chips button { border: 0; background: transparent; color: var(--text-secondary); min-inline-size: var(--size-target-min); min-block-size: var(--size-target-min); border-radius: var(--radius-pill); }
   ul.chips button:hover { background: var(--surface-hover); }
-  footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-3); font-size: var(--text-size-caption); color: var(--text-secondary); }
+  footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); padding: var(--space-1) var(--space-3) var(--space-3); font-size: var(--text-size-caption); color: var(--text-secondary); }
   footer a { color: inherit; }
   .languages { margin-inline-start: auto; display: flex; }
   .languages button { border: 0; border-block-end: var(--border-width-medium) solid transparent; padding: var(--space-1); background: transparent; color: var(--text-secondary); min-block-size: var(--size-target-min); }

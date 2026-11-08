@@ -1,0 +1,10 @@
+body { margin: 0; background: var(--surface-base); color: var(--text-primary); font-family: var(--font-sans); line-height: 1.6; }
+html[lang="ar"] body { font-family: var(--font-sans-ar); }
+html[lang="zh-CN"] body { font-family: var(--font-sans-zh); }
+main { max-inline-size: 960px; margin-inline: auto; padding: var(--space-6); }
+header { display: flex; gap: var(--space-3); align-items: center; direction: ltr; }
+header img { inline-size: 48px; block-size: 48px; }
+a { color: var(--accent-text); }
+details { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-3); margin-block: var(--space-3); }
+summary { cursor: pointer; overflow-wrap: anywhere; }
+pre { font: inherit; font-size: 0.875rem; white-space: pre-wrap; overflow-wrap: anywhere; direction: ltr; text-align: start; }
