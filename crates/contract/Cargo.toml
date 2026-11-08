@@ -1,0 +1,15 @@
+[package]
+name = "nddev-browseruse-contract"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+toml = "=1.2.0"
+utoipa = "=6.0.0"
+
+[lints.rust]
+unsafe_code = "forbid"

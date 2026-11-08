@@ -1,15 +1,15 @@
 {
   "extensionName": {
-    "message": "NDDev OpenNetwork NDS browser-use"
+    "message": "nddev-browseruse"
   },
   "extensionDescription": {
-    "message": "Lets NDS agents work in their own tab groups of your browser, through the NDS host on this device."
+    "message": "Let your chosen agents work in their own browser tab groups through a local host, with activity collection under your control."
   },
   "actionTitle": {
-    "message": "NDS agent"
+    "message": "nddev-browseruse"
   },
   "title": {
-    "message": "NDS agent"
+    "message": "nddev-browseruse"
   },
   "linkOk": {
     "message": "Connected"
@@ -24,13 +24,13 @@
     "message": "Update needed"
   },
   "mismatch": {
-    "message": "The NDS host speaks contract $1 and this extension does not. Update the extension, or run `nds-browser-use install` for a newer host."
+    "message": "Update the extension and local host to matching versions."
   },
   "setupNeeded": {
-    "message": "The NDS host is not running on this device. Agents need it to work in your browser."
+    "message": "The local host is not running on this device. Agents need it to work in your browser."
   },
   "setupLink": {
-    "message": "Set up the NDS host"
+    "message": "Set up the local host"
   },
   "controlTitle": {
     "message": "Agent control"
@@ -42,13 +42,13 @@
     "message": "Agents cannot act, and their tabs are released."
   },
   "agentTabs": {
-    "message": "Agent tabs open: $1."
+    "message": "{v1, plural, one {# agent tab open.} other {# agent tabs open.}}"
   },
   "tabTitle": {
     "message": "This tab"
   },
   "tabAgent": {
-    "message": "Agent group “$1”"
+    "message": "Agent group “{v1}”"
   },
   "tabOwner": {
     "message": "Your own tab"
@@ -66,10 +66,10 @@
     "message": "Stop recording"
   },
   "recordingNow": {
-    "message": "Recording your actions: $1 so far."
+    "message": "{v1, plural, one {Recording your actions: # so far.} other {Recording your actions: # so far.}}"
   },
   "recordedDone": {
-    "message": "Recorded $1 actions. The agent reads them with `recorder events`."
+    "message": "Recorded {v1, plural, one {# action} other {# actions}}. The agent reads them with `recorder events`."
   },
   "recordHint": {
     "message": "Your clicks, typing and navigations here become steps the agent can replay."
@@ -87,10 +87,10 @@
     "message": "Agent control is off."
   },
   "refusedHost": {
-    "message": "The NDS host is not connected."
+    "message": "The local host is not connected."
   },
   "refusedTimeout": {
-    "message": "The NDS host did not answer."
+    "message": "The local host did not answer."
   },
   "privateIs": {
     "message": "Private"
@@ -105,7 +105,7 @@
     "message": "Agents still work there, but their activity journal keeps no content of them."
   },
   "privateRemove": {
-    "message": "Keep the content of $1 again"
+    "message": "Keep the content of {v1} again"
   },
   "activityTitle": {
     "message": "What the agent did here"
@@ -117,10 +117,10 @@
     "message": "Open a tab of an agent group to see what its agent did."
   },
   "activityHost": {
-    "message": "The NDS host did not answer."
+    "message": "The local host did not answer."
   },
   "activityHint": {
-    "message": "Newest first. Agents read all of it with `nds-browser-use -s <project> activity`."
+    "message": "Newest first. Agents read all of it with `nddev-browseruse -s <project> activity`."
   },
   "kindAction": {
     "message": "action"
@@ -192,12 +192,42 @@
     "message": "Privacy"
   },
   "versions": {
-    "message": "Extension $1 · host $2"
+    "message": "Extension {v1} · host {v2}"
   },
   "versionsNoHost": {
-    "message": "Extension $1"
+    "message": "Extension {v1}"
   },
   "pinElement": {
-    "message": "Pin this element for the NDS agent"
+    "message": "Pin this element for your agent"
+  },
+  "hostUpdate": {
+    "message": "Install local host {v1} or newer to resume. This version enforces your collection choices."
+  },
+  "consentTitle": {
+    "message": "Choose activity collection"
+  },
+  "consentPurpose": {
+    "message": "Your chosen agents can read and act in their own tab groups. Pages and results reach those agents to carry out your requests, including when collection is Off."
+  },
+  "consentData": {
+    "message": "Full saves a redacted activity journal on this device. Standard keeps operation metadata only. Off collects neither and disables recording. This extension sends no diagnostics to NDDev."
+  },
+  "previousChoice": {
+    "message": "Your saved preference: {v1}. Control and private sites are preserved. Collection stays Off until you choose below."
+  },
+  "useFull": {
+    "message": "Use Full · local activity journal"
+  },
+  "useStandard": {
+    "message": "Use Standard · metadata only"
+  },
+  "useOff": {
+    "message": "Use Off · no collection"
+  },
+  "languageTitle": {
+    "message": "Language"
+  },
+  "setupFailed": {
+    "message": "Extension files are missing or unreadable. Reload or reinstall the extension."
   }
 }

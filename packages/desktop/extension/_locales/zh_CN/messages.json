@@ -1,0 +1,233 @@
+{
+  "extensionName": {
+    "message": "nddev-browseruse"
+  },
+  "extensionDescription": {
+    "message": "您选择的代理通过本地宿主在各自的标签组中工作，活动收集由您掌控。"
+  },
+  "actionTitle": {
+    "message": "nddev-browseruse"
+  },
+  "title": {
+    "message": "nddev-browseruse"
+  },
+  "linkOk": {
+    "message": "已连接"
+  },
+  "linkOff": {
+    "message": "代理已暂停"
+  },
+  "linkDown": {
+    "message": "宿主未运行"
+  },
+  "linkMismatch": {
+    "message": "需要更新"
+  },
+  "mismatch": {
+    "message": "请将扩展和本地宿主更新到兼容的版本。"
+  },
+  "setupNeeded": {
+    "message": "此设备上的本地宿主未运行。代理需要它才能在浏览器中工作。"
+  },
+  "setupLink": {
+    "message": "设置本地宿主"
+  },
+  "controlTitle": {
+    "message": "代理控制"
+  },
+  "controlOn": {
+    "message": "代理可在各自的标签组中工作。"
+  },
+  "controlOff": {
+    "message": "代理无法操作，其标签页已解除控制。"
+  },
+  "agentTabs": {
+    "message": "已打开 {v1} 个代理标签页。"
+  },
+  "tabTitle": {
+    "message": "当前标签页"
+  },
+  "tabAgent": {
+    "message": "代理标签组“{v1}”"
+  },
+  "tabOwner": {
+    "message": "您自己的标签页"
+  },
+  "tabNone": {
+    "message": "无标签页"
+  },
+  "tabOwnerNote": {
+    "message": "代理无法使用此标签页。将其移入代理标签组即可共享。"
+  },
+  "record": {
+    "message": "记录我的操作"
+  },
+  "stopRecord": {
+    "message": "停止记录"
+  },
+  "recordingNow": {
+    "message": "正在记录您的操作：已记录 {v1} 次。"
+  },
+  "recordedDone": {
+    "message": "已记录 {v1} 次操作。代理通过 `recorder events` 读取。"
+  },
+  "recordHint": {
+    "message": "此处的点击、输入和导航将成为代理可重放的步骤。"
+  },
+  "refusedNoAgentTab": {
+    "message": "请打开代理标签组中的标签页以记录操作。"
+  },
+  "refusedSession": {
+    "message": "此代理标签组没有打开的会话。"
+  },
+  "refusedBusy": {
+    "message": "代理正在运行代码，请稍后重试。"
+  },
+  "refusedPermission": {
+    "message": "代理控制已关闭。"
+  },
+  "refusedHost": {
+    "message": "本地宿主未连接。"
+  },
+  "refusedTimeout": {
+    "message": "本地宿主未响应。"
+  },
+  "privateIs": {
+    "message": "私密"
+  },
+  "privateAddAny": {
+    "message": "设为私密"
+  },
+  "privateTitle": {
+    "message": "私密网站"
+  },
+  "privateNote": {
+    "message": "代理仍可在这些网站工作，但活动日志不保留其内容。"
+  },
+  "privateRemove": {
+    "message": "重新保留 {v1} 的内容"
+  },
+  "activityTitle": {
+    "message": "代理在此处的操作"
+  },
+  "activityNone": {
+    "message": "暂无操作。完整收集模式下将显示操作步骤。"
+  },
+  "activityNoTab": {
+    "message": "请打开代理标签组中的标签页以查看其操作。"
+  },
+  "activityHost": {
+    "message": "本地宿主未响应。"
+  },
+  "activityHint": {
+    "message": "最新操作在前。代理通过 `nddev-browseruse -s <project> activity` 读取日志。"
+  },
+  "kindAction": {
+    "message": "操作"
+  },
+  "kindNavigation": {
+    "message": "页面"
+  },
+  "kindPage": {
+    "message": "标签页"
+  },
+  "kindNetwork": {
+    "message": "请求"
+  },
+  "kindExecution": {
+    "message": "运行"
+  },
+  "kindDownload": {
+    "message": "下载"
+  },
+  "kindConsole": {
+    "message": "控制台"
+  },
+  "kindDialog": {
+    "message": "对话框"
+  },
+  "kindPageError": {
+    "message": "错误"
+  },
+  "kindRecording": {
+    "message": "记录"
+  },
+  "kindPersonAction": {
+    "message": "您"
+  },
+  "kindToast": {
+    "message": "消息"
+  },
+  "kindOther": {
+    "message": "事件"
+  },
+  "private": {
+    "message": "私密"
+  },
+  "observationTitle": {
+    "message": "活动收集"
+  },
+  "full": {
+    "message": "完整"
+  },
+  "standard": {
+    "message": "标准"
+  },
+  "off": {
+    "message": "关闭"
+  },
+  "observationFull": {
+    "message": "在此设备保存完整日志，并移除可识别的敏感信息。"
+  },
+  "observationStandard": {
+    "message": "仅保留名称、耗时和结果，不保留页面内容。"
+  },
+  "observationOff": {
+    "message": "不收集任何活动，操作记录已关闭。"
+  },
+  "guide": {
+    "message": "代理指南"
+  },
+  "privacyPolicy": {
+    "message": "隐私"
+  },
+  "versions": {
+    "message": "扩展 {v1} · 宿主 {v2}"
+  },
+  "versionsNoHost": {
+    "message": "扩展 {v1}"
+  },
+  "pinElement": {
+    "message": "为代理固定此元素"
+  },
+  "hostUpdate": {
+    "message": "请安装 {v1} 或更新版本的本地宿主后继续。该版本可执行您的收集设置。"
+  },
+  "consentTitle": {
+    "message": "选择活动收集方式"
+  },
+  "consentPurpose": {
+    "message": "您选择的代理可在各自的标签组中读取页面并执行操作。为完成您的请求，页面和结果会传给这些代理，即使活动收集已关闭。"
+  },
+  "consentData": {
+    "message": "完整模式在此设备保存经过敏感信息过滤的活动日志。标准模式仅保留操作元数据。关闭模式不收集活动，并停用操作记录。此扩展不会向 NDDev 发送诊断数据。"
+  },
+  "previousChoice": {
+    "message": "已保存的偏好：{v1}。控制设置和私密网站均已保留。在您选择前，活动收集保持关闭。"
+  },
+  "useFull": {
+    "message": "完整 · 本地活动日志"
+  },
+  "useStandard": {
+    "message": "标准 · 仅元数据"
+  },
+  "useOff": {
+    "message": "关闭 · 不收集"
+  },
+  "languageTitle": {
+    "message": "语言"
+  },
+  "setupFailed": {
+    "message": "扩展文件缺失或无法读取。请重新加载或重新安装扩展。"
+  }
+}

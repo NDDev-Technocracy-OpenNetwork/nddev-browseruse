@@ -1,0 +1,17 @@
+# Public extension values. See crates/contract/src/lib.rs for units, scope and bounds.
+[public]
+minimumHost = "0.2.5"
+consentRevision = 1
+initialObservation = "standard"
+privateSitesLimit = 256
+awakeIdleMs = 20000
+setupTimeoutMs = 10000
+ownerReplyMs = 15000
+ownerRequestsLimit = 32
+refreshMs = 2000
+batchEvents = 128
+batchBytes = 4194304
+partsBytes = 33554432
+guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/agent-guide.md"
+privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/privacy.md"
+installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/main/docs/desktop.md#install"

@@ -23,12 +23,7 @@ pub struct Status {
     pub compatible: Option<bool>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Build {
-    pub version: String,
-    pub commit: String,
-}
+pub use nddev_browseruse_contract::Build;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

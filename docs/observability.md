@@ -11,12 +11,28 @@ executor follows it.
 
 | Profile | Collected |
 | --- | --- |
-| **Full** (the owner's default) | Standard, plus the activity journal with content: each execution's code and result, Playwright actions with their locators and values, navigations, network requests with their redacted URLs, headers and textual bodies, console errors, warnings and failed assertions, page errors, dialogs and downloads; the recorder's network capture. |
+| **Full** (explicit choice) | Standard, plus the activity journal with content: each execution's code and result, Playwright actions with their locators and values, navigations, network requests with their redacted URLs, headers and textual bodies, console errors, warnings and failed assertions, page errors, dialogs and downloads; the recorder's network capture. |
 | **Standard** | The host's lifecycle, security and outcome events, such as one per execution with its duration, outcome and error class. No URL, title, locator, value or body. |
 | **Off** | Nothing new is collected or exported: no journal, no recorder, no telemetry. Records not yet written or sent are discarded. Sessions, permissions and the errors agents and the owner see keep working. |
 
 The popup shows the profile and what it collects; `nddev-browseruse status` reports the profile the
 host applies. A selected profile is not proof that collection works: the journal itself is.
+
+## Updating the extension
+
+A new installation or an upgrade without the current disclosure revision starts
+with effective control paused and collection Off. The popup explains operational
+page transfer and local activity collection, and asks the owner to choose Full,
+Standard or Off. New installations suggest Standard; no choice is submitted
+automatically. An existing observation preference, control switch and private
+sites are retained. Confirming Off permits ordinary agent work without collecting
+activity. The host version must pass the compatibility gate before work resumes.
+
+Each native connection initially reports Off and disabled control, including after
+a worker restart. Only after the host identifies a compatible build and the owner
+has accepted the disclosure does the worker apply the saved preferences. Startup
+and extension-connected diagnostic records suppressed during this interval are
+never replayed. An older host remains paused and the popup links to installation.
 
 ## Where the data goes
 
@@ -71,13 +87,17 @@ tab, newest first, as the journal holds them.
 
 ## What is collected, and what is not
 
-Secrets never reach the journal:
+The journal removes these recognized secret fields before retention:
 - authorization, cookie and set-cookie headers;
 - credentials and fragments in URLs;
 - query, form and JSON fields whose names mark a secret (token, password, code, secret,
   signature, session, key and the like);
 - values typed into password, one-time-code and payment fields;
 - multipart and unstructured request bodies.
+
+Unrecognized sensitive content in ordinary page text can remain in a Full journal.
+Private sites omit content; Off disables collection. Operational results still reach
+the chosen agent to carry out the owner's request in every profile.
 
 Noise is left out:
 - requests to analytics and advertising hosts;

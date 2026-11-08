@@ -1,0 +1,233 @@
+{
+  "extensionName": {
+    "message": "nddev-browseruse"
+  },
+  "extensionDescription": {
+    "message": "تعمل الوكلاء التي تختارها في مجموعات علامات تبويب خاصة بها عبر مضيف محلي، وتتحكم أنت في جمع النشاط."
+  },
+  "actionTitle": {
+    "message": "nddev-browseruse"
+  },
+  "title": {
+    "message": "nddev-browseruse"
+  },
+  "linkOk": {
+    "message": "متصل"
+  },
+  "linkOff": {
+    "message": "الوكلاء متوقفة مؤقتًا"
+  },
+  "linkDown": {
+    "message": "المضيف لا يعمل"
+  },
+  "linkMismatch": {
+    "message": "يلزم تحديث"
+  },
+  "mismatch": {
+    "message": "حدّث الإضافة والمضيف المحلي إلى إصدارين متوافقين."
+  },
+  "setupNeeded": {
+    "message": "المضيف المحلي لا يعمل على هذا الجهاز. تحتاج إليه الوكلاء للعمل في متصفحك."
+  },
+  "setupLink": {
+    "message": "إعداد المضيف المحلي"
+  },
+  "controlTitle": {
+    "message": "تحكم الوكلاء"
+  },
+  "controlOn": {
+    "message": "يمكن للوكلاء العمل في مجموعات علامات التبويب الخاصة بها."
+  },
+  "controlOff": {
+    "message": "لا يمكن للوكلاء التصرف، وقد أُفرج عن علامات تبويبها."
+  },
+  "agentTabs": {
+    "message": "علامات تبويب الوكلاء المفتوحة: {v1}."
+  },
+  "tabTitle": {
+    "message": "علامة التبويب هذه"
+  },
+  "tabAgent": {
+    "message": "مجموعة الوكيل «{v1}»"
+  },
+  "tabOwner": {
+    "message": "علامة تبويبك الخاصة"
+  },
+  "tabNone": {
+    "message": "لا توجد علامة تبويب"
+  },
+  "tabOwnerNote": {
+    "message": "لا يمكن للوكلاء استخدامها. انقلها إلى مجموعة وكيل لمشاركتها."
+  },
+  "record": {
+    "message": "تسجيل ما أفعله"
+  },
+  "stopRecord": {
+    "message": "إيقاف التسجيل"
+  },
+  "recordingNow": {
+    "message": "جارٍ تسجيل إجراءاتك: {v1} حتى الآن."
+  },
+  "recordedDone": {
+    "message": "تم تسجيل {v1} من الإجراءات. يقرأها الوكيل باستخدام `recorder events`."
+  },
+  "recordHint": {
+    "message": "تصبح النقرات والكتابة والتنقل هنا خطوات يستطيع الوكيل إعادة تنفيذها."
+  },
+  "refusedNoAgentTab": {
+    "message": "افتح علامة تبويب في مجموعة وكيل لتسجيل إجراءاتك فيها."
+  },
+  "refusedSession": {
+    "message": "لا توجد جلسة مفتوحة لمجموعة الوكيل هذه."
+  },
+  "refusedBusy": {
+    "message": "الوكيل ينفّذ تعليمات برمجية؛ حاول بعد قليل."
+  },
+  "refusedPermission": {
+    "message": "تحكم الوكلاء متوقف."
+  },
+  "refusedHost": {
+    "message": "المضيف المحلي غير متصل."
+  },
+  "refusedTimeout": {
+    "message": "لم يرد المضيف المحلي."
+  },
+  "privateIs": {
+    "message": "خاص"
+  },
+  "privateAddAny": {
+    "message": "جعل الموقع خاصًا"
+  },
+  "privateTitle": {
+    "message": "المواقع الخاصة"
+  },
+  "privateNote": {
+    "message": "تستمر الوكلاء في العمل فيها، لكن سجل النشاط لا يحتفظ بمحتواها."
+  },
+  "privateRemove": {
+    "message": "الاحتفاظ بمحتوى {v1} مجددًا"
+  },
+  "activityTitle": {
+    "message": "ما فعله الوكيل هنا"
+  },
+  "activityNone": {
+    "message": "لا شيء بعد. تظهر الخطوات في وضع الجمع الكامل."
+  },
+  "activityNoTab": {
+    "message": "افتح علامة تبويب في مجموعة وكيل للاطلاع على إجراءاته."
+  },
+  "activityHost": {
+    "message": "لم يرد المضيف المحلي."
+  },
+  "activityHint": {
+    "message": "الأحدث أولًا. يقرأ الوكيل السجل باستخدام `nddev-browseruse -s <project> activity`."
+  },
+  "kindAction": {
+    "message": "إجراء"
+  },
+  "kindNavigation": {
+    "message": "صفحة"
+  },
+  "kindPage": {
+    "message": "علامة تبويب"
+  },
+  "kindNetwork": {
+    "message": "طلب"
+  },
+  "kindExecution": {
+    "message": "تشغيل"
+  },
+  "kindDownload": {
+    "message": "تنزيل"
+  },
+  "kindConsole": {
+    "message": "وحدة التحكم"
+  },
+  "kindDialog": {
+    "message": "حوار"
+  },
+  "kindPageError": {
+    "message": "خطأ"
+  },
+  "kindRecording": {
+    "message": "تسجيل"
+  },
+  "kindPersonAction": {
+    "message": "أنت"
+  },
+  "kindToast": {
+    "message": "رسالة"
+  },
+  "kindOther": {
+    "message": "حدث"
+  },
+  "private": {
+    "message": "خاص"
+  },
+  "observationTitle": {
+    "message": "جمع النشاط"
+  },
+  "full": {
+    "message": "كامل"
+  },
+  "standard": {
+    "message": "قياسي"
+  },
+  "off": {
+    "message": "متوقف"
+  },
+  "observationFull": {
+    "message": "سجل كامل على هذا الجهاز، مع إزالة الأسرار التي يتم التعرف عليها."
+  },
+  "observationStandard": {
+    "message": "الأسماء والتوقيت والنتائج فقط، دون محتوى الصفحات."
+  },
+  "observationOff": {
+    "message": "لا يُجمع أي شيء، وتسجيل الإجراءات متوقف."
+  },
+  "guide": {
+    "message": "دليل الوكيل"
+  },
+  "privacyPolicy": {
+    "message": "الخصوصية"
+  },
+  "versions": {
+    "message": "الإضافة {v1} · المضيف {v2}"
+  },
+  "versionsNoHost": {
+    "message": "الإضافة {v1}"
+  },
+  "pinElement": {
+    "message": "تثبيت هذا العنصر للوكيل"
+  },
+  "hostUpdate": {
+    "message": "ثبّت المضيف المحلي {v1} أو أحدث للمتابعة. يطبّق هذا الإصدار خيارات جمع النشاط."
+  },
+  "consentTitle": {
+    "message": "اختر جمع النشاط"
+  },
+  "consentPurpose": {
+    "message": "تقرأ الوكلاء التي تختارها الصفحات وتتصرف في مجموعاتها الخاصة. تصل الصفحات والنتائج إلى تلك الوكلاء لتنفيذ طلباتك، حتى عند إيقاف جمع النشاط."
+  },
+  "consentData": {
+    "message": "يحفظ الوضع الكامل سجلًا محليًا بعد إزالة الأسرار المعروفة. يحتفظ الوضع القياسي ببيانات العمليات الوصفية فقط. يوقف وضع «متوقف» الجمع وتسجيل الإجراءات. لا ترسل هذه الإضافة بيانات تشخيصية إلى NDDev."
+  },
+  "previousChoice": {
+    "message": "اختيارك المحفوظ: {v1}. تم الاحتفاظ بالتحكم والمواقع الخاصة. يبقى الجمع متوقفًا حتى تختار أدناه."
+  },
+  "useFull": {
+    "message": "كامل · سجل محلي"
+  },
+  "useStandard": {
+    "message": "قياسي · بيانات وصفية"
+  },
+  "useOff": {
+    "message": "متوقف · دون جمع"
+  },
+  "languageTitle": {
+    "message": "اللغة"
+  },
+  "setupFailed": {
+    "message": "ملفات الإضافة مفقودة أو غير قابلة للقراءة. أعد تحميل الإضافة أو تثبيتها."
+  }
+}

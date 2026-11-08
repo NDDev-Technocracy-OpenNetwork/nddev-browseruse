@@ -12,5 +12,8 @@
   ],
   "ignoreBinaries": [
     "ffmpeg"
+  ],
+  "ignore": [
+    "packages/desktop/extension/src/generated/**"
   ]
 }

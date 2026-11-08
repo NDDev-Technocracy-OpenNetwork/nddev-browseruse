@@ -2,6 +2,14 @@
 // This worker only attaches chrome.debugger to tabs in NDS-managed groups and
 // relays their CDP traffic over native messaging. Other tabs are never touched.
 
+import type {
+  BadgeColors,
+  BrowserStatus,
+  Build,
+  FrontendConfig,
+  Observation,
+  OwnerRecording,
+} from "./generated/types.gen.js";
 import { type FrameTree, Restore, restricted } from "./restore.js";
 
 const HOST = "ai.nddev.nds.browser_use";
@@ -9,12 +17,20 @@ const PROTOCOL = "1.3";
 const ENABLED = "enabled";
 // The owner's observation profile (docs/observability.md): what agent activity is collected.
 const OBSERVATION = "observation";
-type Observation = "full" | "standard" | "off";
+const CONSENT = "consentRevision";
+let config: FrontendConfig;
+let badgeColors: BadgeColors | undefined;
+let consented = false;
+let desiredEnabled = true;
+let desiredObservation: Observation;
+let hostReady = false;
+let policyGeneration = 0;
+let policyDrain: Promise<void> = Promise.resolve();
 const OBSERVATIONS: readonly Observation[] = ["full", "standard", "off"];
 const GROUPS = "groups";
 // The owner's private sites: agents still work there, but the journal keeps no content of them.
 const PRIVATE = "private";
-const PRIVATE_LIMIT = 256;
+
 const RELOADED_FOR = "reloadedFor";
 const OWNER = "owner:";
 const PIN = "nds-pin";
@@ -48,7 +64,7 @@ const SETUP = new Set([
   "Target.getTargetInfo",
   "Target.setAutoAttach",
 ]);
-const SETUP_TIMEOUT_MS = 10_000;
+
 // While Chrome captures a screenshot of an agent tab, this worker's ghost cursor, the page's
 // scrollbars and the text caret stay out of it; the accessibility labels a labelled screenshot
 // draws stay in.
@@ -61,7 +77,7 @@ const SHOT_CSS =
 // 8x8 pixels and at most one frame every 600 draws, whose frames go nowhere. It ends after
 // AWAKE_IDLE_MS without a command, so idle agent tabs cost nothing. The agent's own screencast,
 // for a recording, replaces it while it runs.
-const AWAKE_IDLE_MS = 20_000;
+
 const AWAKE = { format: "jpeg", quality: 1, maxWidth: 8, maxHeight: 8, everyNthFrame: 600 };
 type Awake = { timer: ReturnType<typeof setTimeout> | undefined; on: boolean; agent: boolean };
 const awake = new Map<number, Awake>();
@@ -78,7 +94,7 @@ function awakeOf(tab: number): Awake {
 async function wake(tab: number): Promise<void> {
   const state = awakeOf(tab);
   clearTimeout(state.timer);
-  state.timer = setTimeout(() => void rest(tab, state), AWAKE_IDLE_MS);
+  state.timer = setTimeout(() => void rest(tab, state), config.awakeIdleMs);
   if (state.on || state.agent) return;
   state.on = true;
   await chrome.debugger.sendCommand({ tabId: tab }, "Page.startScreencast", AWAKE).catch(() => {
@@ -139,19 +155,12 @@ type Answered = Exclude<
   | { type: "features" }
 >;
 // The recorder of the agent group that holds the owner's tab, as the popup shows it.
-type OwnerRecording = {
-  recording?: boolean;
-  id?: string;
-  events?: number;
-  error?: string;
-  message?: string;
-};
 
 class Refusal extends Error {}
 
 let port: chrome.runtime.Port | undefined;
-let enabled = true;
-let observation: Observation = "full";
+let enabled = false;
+let observation: Observation = "off";
 let privateSites: string[] = [];
 let retry = 1000;
 // Group key -> Chrome group id. Persisted for worker restarts in this browser session.
@@ -211,7 +220,7 @@ async function command(
         timer = setTimeout(() => {
           report("browser.cdp.setup_timeout", "timeout");
           reject(new Error(`${method} got no answer; the tab may be frozen`));
-        }, SETUP_TIMEOUT_MS);
+        }, config.setupTimeoutMs);
       }),
     ]);
   } finally {
@@ -220,12 +229,21 @@ async function command(
 }
 
 async function load(): Promise<void> {
-  const local = await chrome.storage.local.get([ENABLED, OBSERVATION, PRIVATE]);
-  enabled = local[ENABLED] !== false;
+  config = (await fetch(chrome.runtime.getURL("public-settings.json")).then((response) => {
+    if (!response.ok) throw new Error("configuration_unavailable");
+    return response.json();
+  })) as FrontendConfig;
+  badgeColors = (await fetch(chrome.runtime.getURL("design-values.json")).then((response) =>
+    response.json(),
+  )) as BadgeColors;
+  const local = await chrome.storage.local.get([ENABLED, OBSERVATION, PRIVATE, CONSENT]);
+  desiredEnabled = local[ENABLED] !== false;
+  consented = local[CONSENT] === config.consentRevision;
   privateSites = Array.isArray(local[PRIVATE])
     ? (local[PRIVATE] as unknown[]).filter((site): site is string => typeof site === "string")
     : [];
-  observation = OBSERVATIONS.find((profile) => profile === local[OBSERVATION]) ?? "full";
+  desiredObservation =
+    OBSERVATIONS.find((profile) => profile === local[OBSERVATION]) ?? config.initialObservation;
   const session = await chrome.storage.session.get(GROUPS);
   groups = new Map(Object.entries((session[GROUPS] ?? {}) as Record<string, number>));
   await badge();
@@ -243,13 +261,19 @@ const CONTRACT = 2;
 // not running, or one that does not match.
 async function badge(): Promise<void> {
   const tabs = [...attached.keys()].filter(usable).length;
-  const [text, color] = !enabled
-    ? ["OFF", "#646b78"]
-    : !port
-      ? ["…", "#b26a00"]
-      : hostContract !== undefined
-        ? ["!", "#c4322b"]
-        : [tabs > 0 ? String(tabs) : "", "#0b7a8a"];
+  const colors = badgeColors;
+  if (!colors) {
+    await chrome.action.setBadgeText({ text: "!" });
+    return;
+  }
+  const [text, color] =
+    hostContract !== undefined || (hostBuild !== undefined && !hostReady)
+      ? ["!", colors.error]
+      : !enabled
+        ? ["OFF", colors.neutral]
+        : !port
+          ? ["…", colors.warning]
+          : [tabs > 0 ? String(tabs) : "", colors.accent];
   await chrome.action.setBadgeBackgroundColor({ color }).catch(() => undefined);
   await chrome.action.setBadgeText({ text });
 }
@@ -259,8 +283,7 @@ async function badge(): Promise<void> {
 // frames, network traffic) would otherwise queue ahead of command answers. A batch closes at the
 // end of the current task, or once it holds `BATCH_EVENTS` events or about `BATCH_BYTES`; every
 // other message sends the batch first, so the host sees everything in its order.
-const BATCH_EVENTS = 128;
-const BATCH_BYTES = 4 * 1_048_576;
+
 let batches = false;
 let batch: object[] = [];
 let batchBytes = 0;
@@ -291,7 +314,7 @@ function forward(event: { type: "event"; params?: unknown } & Record<string, unk
   }
   batch.push(event);
   batchBytes += weight((event.params ?? {}) as Record<string, unknown>);
-  if (batch.length >= BATCH_EVENTS || batchBytes >= BATCH_BYTES) flush();
+  if (batch.length >= config.batchEvents || batchBytes >= config.batchBytes) flush();
   else batchTimer ??= setTimeout(flush, 0);
 }
 
@@ -319,7 +342,6 @@ function report(event: Reported, error?: ReportedError): void {
 }
 
 // The parts of one larger message arrive back to back; together they are at most this long.
-const PARTS_LIMIT = 32 * 1_048_576;
 
 function connect(): void {
   if (port) return;
@@ -337,7 +359,7 @@ function connect(): void {
     }
     whole.data.push(part.data);
     whole.length += part.data.length;
-    if (whole.length > PARTS_LIMIT) {
+    if (whole.length > config.partsBytes) {
       joining = undefined;
       return undefined;
     }
@@ -350,6 +372,7 @@ function connect(): void {
     }
   };
   next.onMessage.addListener((received: HostRequest | Part) => {
+    if (port !== next) return;
     const message = received.type === "part" ? join(received) : received;
     if (!message) return;
     if (message.type === "reload") void reloadFor(message.version);
@@ -357,16 +380,21 @@ function connect(): void {
     else if (message.type === "journaled") journaled.get(message.request)?.(message.lines);
     else if (message.type === "about") {
       hostBuild = { version: message.version, commit: message.commit };
-      for (const done of abouts.splice(0)) done();
+      hostReady = compatibleHost(message.version);
+      void applyPolicy();
+      void aboutReply?.();
     } else if (message.type === "features") {
       batches = message.batches === true;
     } else if (message.type === "incompatible") {
       // The host speaks another contract: nothing an agent asks can work until one is updated.
       hostContract = message.contract;
-      void badge();
+      hostReady = false;
+      void applyPolicy();
     } else void handle(message);
   });
   next.onDisconnect.addListener(() => {
+    if (port !== next) return;
+    void aboutReply?.();
     // The host owned every session; without it no agent may keep control.
     port = undefined;
     batches = false;
@@ -374,6 +402,10 @@ function connect(): void {
     batchBytes = 0;
     hostContract = undefined;
     hostBuild = undefined;
+    hostReady = false;
+    policyGeneration++;
+    enabled = false;
+    observation = "off";
     void detachAll().then(badge);
     setTimeout(connect, retry);
     retry = Math.min(retry * 2, 60_000);
@@ -393,6 +425,7 @@ function connect(): void {
     observation,
     private: privateSites,
   });
+  send({ type: "about" });
   void badge();
 }
 
@@ -1621,27 +1654,70 @@ chrome.tabGroups.onRemoved.addListener((group) => {
 // The owner's switch in the action popup: disabling detaches every agent tab
 // and the host refuses new work until it is enabled again.
 // The intent reaches the host at once; ending the attachments may take longer or partly fail.
+// Compare numeric release versions; prereleases and unknown builds require an update.
+function compatibleHost(version: string): boolean {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) return false;
+  const actual = version.split(".").map(Number);
+  const minimum = config.minimumHost.split(".").map(Number);
+  for (let index = 0; index < 3; index++) {
+    const a = actual[index] ?? 0;
+    const b = minimum[index] ?? 0;
+    if (a !== b) return a > b;
+  }
+  return true;
+}
+
+async function applyPolicy(): Promise<void> {
+  const generation = ++policyGeneration;
+  const allowed = consented && hostReady && hostContract === undefined;
+  const nextObservation = allowed ? desiredObservation : "off";
+  const nextEnabled = allowed && desiredEnabled;
+  if (observation !== nextObservation) {
+    observation = nextObservation;
+    send({ type: "observation", profile: observation });
+  }
+  if (!nextEnabled && enabled) {
+    // Admission and the host's policy close before awaiting a possibly slow detach.
+    enabled = false;
+    closeAll();
+    send({ type: "control", enabled: false });
+    policyDrain = policyDrain.then(detachAll);
+  }
+  await policyDrain;
+  if (generation !== policyGeneration) return;
+  if (nextEnabled && !enabled) {
+    enabled = true;
+    send({ type: "control", enabled: true });
+  }
+  await badge();
+}
+
 async function setObservation(profile: Observation): Promise<void> {
-  observation = profile;
-  send({ type: "observation", profile });
+  // Revocation reaches the host immediately. A failed save must never restore collection.
+  desiredObservation = profile;
+  await applyPolicy();
   await chrome.storage.local.set({ [OBSERVATION]: profile });
 }
 
+async function accept(profile: Observation): Promise<void> {
+  await chrome.storage.local.set({ [CONSENT]: config.consentRevision, [OBSERVATION]: profile });
+  desiredObservation = profile;
+  consented = true;
+  await applyPolicy();
+}
+
 async function setEnabled(value: boolean): Promise<void> {
-  enabled = value;
-  if (!enabled) closeAll();
-  send({ type: "control", enabled });
-  await chrome.storage.local.set({ [ENABLED]: enabled });
-  if (!enabled) await detachAll();
+  desiredEnabled = value;
+  await applyPolicy();
+  await chrome.storage.local.set({ [ENABLED]: value });
   if (!port) connect();
-  await badge();
 }
 
 // The owner's recorder button: the host runs `recorder.start()`, `stop()` or `status()` in the
 // session of the agent group that holds the owner's tab, as `recorder start` does for an agent,
 // so an agent later reads what the owner did. The popup names its tab only when it is opened as
 // a page of its own (tests); otherwise it is the active tab of the last focused window.
-const RECORD_REPLY_MS = 15_000;
+
 const recorded = new Map<number, (answer: OwnerRecording) => void>();
 let records = 0;
 
@@ -1651,9 +1727,10 @@ async function record(action: string, tab: number | undefined): Promise<OwnerRec
   const held = usable(id);
   if (!held) return { error: "no_agent_tab" };
   if (!port) return { error: "extension_unavailable" };
+  if (recorded.size + journaled.size >= config.ownerRequestsLimit) return { error: "busy" };
   const request = ++records;
   return new Promise((done) => {
-    const timer = setTimeout(() => finish({ error: "timeout" }), RECORD_REPLY_MS);
+    const timer = setTimeout(() => finish({ error: "timeout" }), config.ownerReplyMs);
     function finish(answer: OwnerRecording): void {
       clearTimeout(timer);
       recorded.delete(request);
@@ -1690,9 +1767,10 @@ async function recent(tab: number | undefined): Promise<{ lines?: string[]; erro
   const held = usable(id);
   if (!held) return { error: "no_agent_tab" };
   if (!port) return { error: "extension_unavailable" };
+  if (recorded.size + journaled.size >= config.ownerRequestsLimit) return { error: "busy" };
   const request = ++journals;
   return new Promise((done) => {
-    const timer = setTimeout(() => finish(undefined), RECORD_REPLY_MS);
+    const timer = setTimeout(() => finish(undefined), config.ownerReplyMs);
     function finish(lines: string[] | undefined): void {
       clearTimeout(timer);
       journaled.delete(request);
@@ -1704,36 +1782,47 @@ async function recent(tab: number | undefined): Promise<{ lines?: string[]; erro
 }
 
 async function setPrivate(sites: string[]): Promise<void> {
-  privateSites = [...new Set(sites)].sort().slice(0, PRIVATE_LIMIT);
+  privateSites = [...new Set(sites)].sort().slice(0, config.privateSitesLimit);
   send({ type: "private", sites: privateSites });
   await chrome.storage.local.set({ [PRIVATE]: privateSites });
 }
 
 // The connected host's build, asked for once per connection; the popup's footer names it.
-let hostBuild: { version: string; commit: string } | undefined;
-const abouts: (() => void)[] = [];
+let hostBuild: Build | undefined;
+let aboutReply: (() => void) | undefined;
+let askingAbout: Promise<void> | undefined;
 
 async function about(): Promise<void> {
   if (hostBuild || !port) return;
-  await new Promise<void>((done) => {
-    const timer = setTimeout(done, 1000);
-    abouts.push(() => {
+  askingAbout ??= new Promise<void>((done) => {
+    const finish = () => {
       clearTimeout(timer);
+      aboutReply = undefined;
       done();
-    });
+    };
+    const timer = setTimeout(finish, 1000);
+    aboutReply = finish;
     send({ type: "about" });
   });
+  const pending = askingAbout;
+  try {
+    await pending;
+  } finally {
+    if (askingAbout === pending) askingAbout = undefined;
+  }
 }
 
-async function status(tab: number | undefined): Promise<object> {
+async function status(tab: number | undefined): Promise<BrowserStatus> {
   const [owner] = await Promise.all([tabOf(tab), about()]);
   const site = siteOf(owner?.url);
   const group = owner?.id === undefined ? undefined : usable(owner.id)?.life.group;
   return {
     enabled,
-    observation,
-    connected: port !== undefined,
-    hostContract,
+    observation: desiredObservation,
+    connected: port !== undefined && hostBuild !== undefined,
+    consentRequired: !consented,
+    hostUpdateRequired: hostBuild !== undefined && !hostReady,
+    ...(hostContract === undefined ? {} : { hostContract }),
     tabs: [...attached.keys()].filter(usable).length,
     privateSites,
     version: chrome.runtime.getManifest().version,
@@ -1763,7 +1852,10 @@ chrome.runtime.onMessage.addListener(
     const tab = typeof message.tab === "number" ? message.tab : undefined;
     // Every answer reflects, and every change starts from, the owner's stored settings.
     const answer = (work: () => Promise<unknown>): true => {
-      void loaded.then(work).then(reply);
+      void loaded
+        .then(work)
+        .then(reply)
+        .catch(() => reply({ error: "configuration_unavailable" }));
       return true;
     };
     if (message.type === "set" && typeof message.enabled === "boolean") {
@@ -1771,7 +1863,10 @@ chrome.runtime.onMessage.addListener(
       return answer(() => setEnabled(value).then(() => status(tab)));
     }
     const profile = OBSERVATIONS.find((each) => each === message.profile);
-    if (message.type === "observe" && profile) {
+    if (message.type === "accept" && profile) {
+      return answer(() => accept(profile).then(() => status(tab)));
+    }
+    if (message.type === "observe" && profile && consented) {
       return answer(() => setObservation(profile).then(() => status(tab)));
     }
     if (message.type === "private" && (message.action === "add" || message.action === "remove")) {
@@ -1804,12 +1899,14 @@ chrome.runtime.onMessage.addListener(
 // browser start or an update fires its event before storage answers, and a hello with the
 // defaults would let the host record what the owner turned off. Unreadable storage leaves the
 // defaults.
-const loaded = load().catch(() => undefined);
+const loaded = load();
+// Storage/configuration failure leaves control disabled and collects nothing.
+void loaded.catch(() => badge());
 
 // Browser start and install/update/reload each start the worker; all of them connect once the
 // settings are known.
 function start(): void {
-  void loaded.then(connect);
+  void loaded.then(connect).catch(() => undefined);
 }
 chrome.runtime.onStartup.addListener(start);
 chrome.runtime.onInstalled.addListener(start);

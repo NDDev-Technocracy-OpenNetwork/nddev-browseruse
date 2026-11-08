@@ -12,6 +12,10 @@ use std::{
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
+mod configuration;
+mod design;
+mod licenses;
+
 fn main() -> ExitCode {
     match execute() {
         Ok(()) => ExitCode::SUCCESS,
@@ -31,6 +35,8 @@ fn execute() -> Result {
     match command.as_str() {
         "setup" => setup(),
         "check" => {
+            design::check()?;
+            configuration::check()?;
             check_version()?;
             run("cargo", &["fmt", "--all", "--", "--check"])?;
             run(tool("cargo-shear"), &[])?;
@@ -66,6 +72,8 @@ fn execute() -> Result {
             run(tool("bun"), &["run", "test"])
         }
         "generate" => generate(),
+        "vendor-design" => design::vendor(),
+        "contracts" => configuration::generate(),
         "stage" => {
             let output = std::env::args()
                 .nth(2)
@@ -251,6 +259,16 @@ fn setup() -> Result {
             ],
         )?;
     }
+    run(
+        tool("bun"),
+        &[
+            "install",
+            "--cwd",
+            "tools/codegen",
+            "--frozen-lockfile",
+            "--ignore-scripts",
+        ],
+    )?;
     run("cargo", &["fetch", "--locked"])
 }
 
@@ -347,20 +365,19 @@ fn stage(output: &Path, profile: &str) -> Result {
 }
 
 fn generate() -> Result {
+    design::generate()?;
+    configuration::generate()?;
     let path = Path::new("packages/desktop/extension/manifest.json");
     let mut manifest: Value = serde_json::from_slice(&fs::read(path)?)?;
     manifest["version"] = product_version()?.into();
     let mut encoded = serde_json::to_vec_pretty(&manifest)?;
     encoded.push(b'\n');
     fs::write(path, encoded)?;
-    run(tool("bun"), &["run", "generate"])
+    emit_browser("packages/desktop/extension")
 }
 
-fn check_generated() -> Result {
-    let generated = Path::new(".tools/generated-browser");
-    if generated.exists() {
-        fs::remove_dir_all(generated)?;
-    }
+fn emit_browser(output: &str) -> Result {
+    let metadata = Path::new(".tools/bundle-metadata.json");
     run(
         tool("bun"),
         &[
@@ -369,9 +386,32 @@ fn check_generated() -> Result {
             "-p",
             "tsconfig.extension.json",
             "--outDir",
-            ".tools/generated-browser",
+            output,
         ],
     )?;
+    run(
+        tool("bun"),
+        &[
+            "build",
+            "packages/desktop/extension/src/popup.ts",
+            "--target",
+            "browser",
+            "--minify",
+            "--outdir",
+            output,
+            "--metafile=.tools/bundle-metadata.json",
+        ],
+    )?;
+    licenses::generate(Path::new(output), metadata)
+}
+
+fn check_generated() -> Result {
+    configuration::check_generated()?;
+    let generated = Path::new(".tools/generated-browser");
+    if generated.exists() {
+        fs::remove_dir_all(generated)?;
+    }
+    emit_browser(".tools/generated-browser")?;
     fn compare(source: &Path, checked: &Path) -> Result {
         for entry in fs::read_dir(source)? {
             let entry = entry?;

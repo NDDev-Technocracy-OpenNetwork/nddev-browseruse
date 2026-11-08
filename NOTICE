@@ -45,3 +45,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+The extension consumes the canonical public Apache OpenNetwork design system,
+NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system v0.0.1-alpha.9,
+commit dbdf11b27fc6245b7942ad3e271f171602fce931. Its unmodified web package,
+NOTICE, third-party notices and font licenses are included under
+packages/desktop/extension/vendor/design-system. See design-system.lock.json.
+
+The popup bundles i18next, i18next-icu and their message-format dependencies.
+Their original license texts accompany the distributed extension.

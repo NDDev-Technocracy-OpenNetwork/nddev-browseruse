@@ -5,7 +5,8 @@
       "packages/desktop/extension/src/**/*.ts",
       "packages/desktop/extension/test/**/*.ts",
       "packages/executor/**/*.ts",
-      "e2e/**/*.ts"
+      "e2e/**/*.ts",
+      "!packages/desktop/extension/src/generated/**"
     ]
   },
   "formatter": {

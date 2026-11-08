@@ -79,7 +79,8 @@ class Browser {
   readonly popup = new Event();
   // The owner's stored settings, an answer of local storage that waits, and the browser start
   // and install events the worker listens to.
-  stored: Record<string, unknown> = {};
+  stored: Record<string, unknown> = { consentRevision: 1 };
+  hostVersion = "0.2.5";
   storageHeld: ReturnType<typeof deferred> | undefined;
   readonly startup = new Event();
   readonly installed = new Event();
@@ -154,7 +155,9 @@ class Browser {
             await this.storageHeld?.promise;
             return { ...this.stored };
           },
-          set: async () => {},
+          set: async (values: Record<string, unknown>) => {
+            Object.assign(this.stored, values);
+          },
         },
         session: { get: async () => ({ groups: this.groups }), set: async () => {} },
       },
@@ -170,7 +173,17 @@ class Browser {
         getManifest: () => ({ version: "0.0.4" }),
         reload: () => {},
         connectNative: () => ({
-          postMessage: (message: Message) => this.posted.push(message),
+          postMessage: (message: Message) => {
+            this.posted.push(message);
+            if (message.type === "about")
+              queueMicrotask(() =>
+                this.port.onMessage.fire({
+                  type: "about",
+                  version: this.hostVersion,
+                  commit: "fixture",
+                }),
+              );
+          },
           onMessage: this.port.onMessage,
           onDisconnect: this.port.onDisconnect,
         }),
@@ -319,14 +332,65 @@ class Browser {
   }
 }
 
+// Configuration values for these tests are explicit and do not read deployment files.
+const fixtureConfig = {
+  minimumHost: "0.2.5",
+  consentRevision: 1,
+  initialObservation: "standard",
+  privateSitesLimit: 256,
+  awakeIdleMs: 20000,
+  setupTimeoutMs: 10000,
+  ownerReplyMs: 15000,
+  ownerRequestsLimit: 32,
+  refreshMs: 2000,
+  batchEvents: 128,
+  batchBytes: 4194304,
+  partsBytes: 33554432,
+  guideUrl: "https://example.test/guide",
+  privacyUrl: "https://example.test/privacy",
+  installUrl: "https://example.test/install",
+};
+const originalFetch = globalThis.fetch;
+globalThis.fetch = Object.assign(
+  (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input) === "chrome-extension://worker/public-settings.json"
+      ? Promise.resolve(Response.json(fixtureConfig))
+      : String(input) === "chrome-extension://worker/design-values.json"
+        ? Promise.resolve(
+            Response.json({
+              neutral: "#666666",
+              warning: "#815B00",
+              error: "#C50920",
+              accent: "#FFD83F",
+            }),
+          )
+        : originalFetch(input, init),
+  { preconnect: originalFetch.preconnect },
+);
+
 let loads = 0;
 
-async function worker(groups: Record<string, number>, tabs: [number, number][]) {
-  const browser = new Browser(groups, tabs);
+async function boot(browser: Browser): Promise<void> {
   (globalThis as unknown as { chrome: unknown }).chrome = browser.api();
   const source = "../src/background.ts";
   await import(`${source}?worker=${loads++}`);
   await until(() => browser.posted.some((message) => message.type === "hello"));
+  await Bun.sleep(1);
+}
+
+async function popup(browser: Browser, message: Message): Promise<Message> {
+  return new Promise((resolve) =>
+    browser.popup.fire(
+      message,
+      { id: "worker", url: "chrome-extension://worker/popup.html" },
+      resolve,
+    ),
+  );
+}
+
+async function worker(groups: Record<string, number>, tabs: [number, number][]) {
+  const browser = new Browser(groups, tabs);
+  await boot(browser);
   let id = 0;
   // Sends one host request and returns a function that waits for its answer.
   const send = (message: Message) => {
@@ -337,6 +401,9 @@ async function worker(groups: Record<string, number>, tabs: [number, number][]) 
         browser.posted.find((posted) => posted.type === "result" && posted.id === request.id),
       );
   };
+  await until(() =>
+    browser.posted.some((message) => message.type === "control" && message.enabled === true),
+  );
   return { browser, send };
 }
 
@@ -1208,4 +1275,110 @@ test("a download no agent tab announced stays the owner's", async () => {
   await Bun.sleep(20);
   expect(browser.posted.filter((posted) => posted.type === "download")).toHaveLength(1);
   expect(browser.removed).toEqual([]);
+});
+
+test("an upgrade pauses collection without overwriting saved Full, control or private sites", async () => {
+  const browser = new Browser({}, []);
+  browser.stored = { enabled: false, observation: "full", private: ["bank.example"] };
+  await boot(browser);
+  expect(browser.posted.find((message) => message.type === "hello")).toMatchObject({
+    enabled: false,
+    observation: "off",
+  });
+  expect(await popup(browser, { type: "get" })).toMatchObject({
+    enabled: false,
+    observation: "full",
+    consentRequired: true,
+    privateSites: ["bank.example"],
+  });
+  expect(browser.stored).toEqual({
+    enabled: false,
+    observation: "full",
+    private: ["bank.example"],
+  });
+  expect(
+    browser.posted.some((message) => message.type === "observation" && message.profile !== "off"),
+  ).toBe(false);
+  expect(await popup(browser, { type: "accept", profile: "full" })).toMatchObject({
+    enabled: false,
+    observation: "full",
+    consentRequired: false,
+  });
+  expect(browser.stored).toEqual({
+    enabled: false,
+    observation: "full",
+    private: ["bank.example"],
+    consentRevision: 1,
+  });
+});
+
+test("a saved Off stays Off after consent and a worker restart", async () => {
+  const browser = new Browser({}, []);
+  browser.stored = { enabled: true, observation: "off" };
+  await boot(browser);
+  expect(await popup(browser, { type: "accept", profile: "off" })).toMatchObject({
+    enabled: true,
+    observation: "off",
+    consentRequired: false,
+  });
+  expect(
+    browser.posted.some((message) => message.type === "observation" && message.profile !== "off"),
+  ).toBe(false);
+  const next = new Browser({}, []);
+  next.stored = { ...browser.stored };
+  await boot(next);
+  expect(await popup(next, { type: "get" })).toMatchObject({
+    enabled: true,
+    observation: "off",
+    consentRequired: false,
+  });
+});
+
+test("an older host stays paused even after consent until a compatible build answers", async () => {
+  const browser = new Browser({}, []);
+  browser.hostVersion = "0.0.1-alpha.1";
+  browser.stored = { enabled: true, observation: "off" };
+  await boot(browser);
+  expect(await popup(browser, { type: "accept", profile: "full" })).toMatchObject({
+    enabled: false,
+    hostUpdateRequired: true,
+  });
+  expect(
+    browser.posted.some((message) => message.type === "control" && message.enabled === true),
+  ).toBe(false);
+  expect(
+    browser.posted.some((message) => message.type === "observation" && message.profile !== "off"),
+  ).toBe(false);
+  browser.port.onMessage.fire({ type: "about", version: "0.2.5", commit: "fixture" });
+  expect(await popup(browser, { type: "get" })).toMatchObject({
+    enabled: true,
+    hostUpdateRequired: false,
+    observation: "full",
+  });
+  const messages = browser.posted.filter(
+    (message) => message.type === "control" || message.type === "observation",
+  );
+  expect(messages.map((message) => message.type)).toEqual(["observation", "control"]);
+});
+
+test("popup requests share a bounded budget and replies release it", async () => {
+  const { browser, send } = await worker({ p: P }, [[1, P]]);
+  await send({ type: "claim", group: "p" })();
+  const requests = Array.from({ length: 32 }, () => popup(browser, { type: "recent", tab: 1 }));
+  await until(() => browser.posted.filter((message) => message.type === "journal").length === 32);
+  expect(await popup(browser, { type: "record", action: "status", tab: 1 })).toMatchObject({
+    error: "busy",
+  });
+  for (const message of browser.posted.filter((message) => message.type === "journal")) {
+    browser.port.onMessage.fire({ type: "journaled", request: message.request, lines: [] });
+  }
+  expect(await Promise.all(requests)).toHaveLength(32);
+  const next = popup(browser, { type: "recent", tab: 1 });
+  await until(() => browser.posted.filter((message) => message.type === "journal").length === 33);
+  browser.port.onMessage.fire({
+    type: "journaled",
+    request: browser.posted.at(-1)?.request,
+    lines: [],
+  });
+  expect(await next).toMatchObject({ lines: [] });
 });
