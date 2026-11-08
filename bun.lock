@@ -6,6 +6,8 @@
       "name": "@nddev/nds-browser-use",
       "dependencies": {
         "@mdream/js": "2.0.3",
+        "i18next": "26.7.1",
+        "i18next-icu": "2.6.1",
         "playwright-core": "1.64.1",
       },
       "devDependencies": {
@@ -48,6 +50,12 @@
     "@emnapi/runtime": ["@emnapi/runtime@1.11.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA=="],
 
     "@emnapi/wasi-threads": ["@emnapi/wasi-threads@1.2.2", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA=="],
+
+    "@formatjs/fast-memoize": ["@formatjs/fast-memoize@3.1.7", "", {}, "sha512-zXfhLpvA6T7+efdt9JLbBwZ00tT7NsBMDVnDu8rpHeNNv8KfRZAMo2gkG0k9lK/Nzc//3kJ9pImsfuJxk3KhUA=="],
+
+    "@formatjs/icu-messageformat-parser": ["@formatjs/icu-messageformat-parser@3.5.22", "", { "dependencies": { "@formatjs/icu-skeleton-parser": "2.1.12" } }, "sha512-YuwN+dDKgssfuYwtOyGQD0CSn7K46g9cv1Fp0VgKpjZDDFvv8b8crzP990IcJhRPWHhKzCGsbUSJVIguyyFA5A=="],
+
+    "@formatjs/icu-skeleton-parser": ["@formatjs/icu-skeleton-parser@2.1.12", "", {}, "sha512-ca7tZMLpfHX3sUD7hP6gE/qr6Iq89EDd3ZLeRhbsB7r0UD55DGJq+tmFLzrGrnx5StahUevQmQQVtbDRHsfDHA=="],
 
     "@mdream/js": ["@mdream/js@2.0.3", "", { "dependencies": { "cac": "^7.0.1", "pathe": "^2.0.3" }, "bin": { "mdream-js": "./bin/mdream.mjs" } }, "sha512-n35jmVwE663LBHr9iawaIbO+zpJ5EoCFD9UpG4XRYHs//YUqIX322d/F+QuF08Yi64dpFfzz4p4/joTnVZDvJA=="],
 
@@ -242,6 +250,12 @@
     "formatly": ["formatly@0.11.4", "", { "dependencies": { "fd-package-json": "^2.0.0", "package-manager-detector": "^1.8.0" }, "bin": { "formatly": "bin/index.mjs" } }, "sha512-TeCC10lP8KCgoX+Fe5lryILIT0/Dy+nP0OSVnsuB5CwXoLuOdqxCYlPFF1inR8S/zTy1ec7TjhS2TeRKWzzImA=="],
 
     "get-tsconfig": ["get-tsconfig@4.14.3", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA=="],
+
+    "i18next": ["i18next@26.7.1", "", { "peerDependencies": { "typescript": "^5 || ^6 || ^7" }, "optionalPeers": ["typescript"] }, "sha512-cX+3RRVczel/V2kCMTACckSGSpqgtWYEA6beXNYVms7dOQiHojdPYHD26lT4IKimNeoGWrLvtPgjftbRvmZJVw=="],
+
+    "i18next-icu": ["i18next-icu@2.6.1", "", { "peerDependencies": { "intl-messageformat": ">=10.3.3 <13.0.0" } }, "sha512-ATlbwNqJoa3dUl2+eBcbU7gVgRulPB/rUy1ddLUDTrc9qO2Yjdg3agZSyTrpjhRXKRXxNvMXymoyXvE23/QhbA=="],
+
+    "intl-messageformat": ["intl-messageformat@12.1.4", "", { "dependencies": { "@formatjs/fast-memoize": "3.1.7", "@formatjs/icu-messageformat-parser": "3.5.22" } }, "sha512-JUkmv3cAEyijN3oiRiV3ctel7yVMuUCgfh7Pu8pj1/z6L1DSEPRyhuMaLjVw3pGmGJ5RDH54WVFxfMHZWTwyHw=="],
 
     "jiti": ["jiti@2.7.0", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ=="],
 

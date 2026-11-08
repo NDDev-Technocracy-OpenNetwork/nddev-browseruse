@@ -1,0 +1,38 @@
+[
+  {
+    "file": "formatjs--fast-memoize-3.1.7.txt",
+    "license": "MIT",
+    "name": "@formatjs/fast-memoize",
+    "version": "3.1.7"
+  },
+  {
+    "file": "formatjs--icu-messageformat-parser-3.5.22.txt",
+    "license": "MIT",
+    "name": "@formatjs/icu-messageformat-parser",
+    "version": "3.5.22"
+  },
+  {
+    "file": "formatjs--icu-skeleton-parser-2.1.12.txt",
+    "license": "MIT",
+    "name": "@formatjs/icu-skeleton-parser",
+    "version": "2.1.12"
+  },
+  {
+    "file": "i18next-26.7.1.txt",
+    "license": "MIT",
+    "name": "i18next",
+    "version": "26.7.1"
+  },
+  {
+    "file": "i18next-icu-2.6.1.txt",
+    "license": "MIT",
+    "name": "i18next-icu",
+    "version": "2.6.1"
+  },
+  {
+    "file": "intl-messageformat-12.1.4.txt",
+    "license": "BSD-3-Clause",
+    "name": "intl-messageformat",
+    "version": "12.1.4"
+  }
+]

@@ -255,6 +255,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -312,6 +314,7 @@ dependencies = [
  "futures-io",
  "futures-util",
  "getrandom",
+ "nddev-browseruse-contract",
  "percent-encoding",
  "regex",
  "rustix",
@@ -329,9 +332,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "nddev-browseruse-contract"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "toml",
+ "utoipa",
+]
+
+[[package]]
 name = "nddev-browseruse-tools"
 version = "0.0.0"
 dependencies = [
+ "nddev-browseruse-contract",
  "serde_json",
  "sha2",
  "toml",
@@ -778,6 +791,29 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "utoipa"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8765fe27aeff71012a3f90fa474cf1df863a7d0dd81ed25de4e63fff2544994f"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_json",
+ "utoipa-gen",
+]
+
+[[package]]
+name = "utoipa-gen"
+version = "6.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d935f1c83fdf8b88f09bbe050d0cea78ea4afee6d7b0317403228c1200b2c8ab"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+]
 
 [[package]]
 name = "wasi"

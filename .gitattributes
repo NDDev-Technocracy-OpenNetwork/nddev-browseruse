@@ -3,3 +3,13 @@
 CLAUDE.md linguist-generated
 packages/desktop/extension/background.js linguist-generated
 packages/desktop/extension/popup.js linguist-generated
+
+packages/desktop/extension/restore.js linguist-generated
+packages/desktop/extension/generated/** linguist-generated
+packages/desktop/extension/src/generated/** linguist-generated
+packages/desktop/extension/styles/fonts.css linguist-generated
+packages/desktop/extension/design-values.json linguist-generated
+packages/desktop/extension/public-settings.json linguist-generated
+packages/desktop/extension/licenses/npm/** -text -whitespace linguist-generated
+packages/desktop/extension/vendor/** -text -whitespace linguist-vendored
+contracts/openapi.json linguist-generated

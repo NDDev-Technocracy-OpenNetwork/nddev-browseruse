@@ -2,32 +2,22 @@
 // recorder, keeping its site private), the agent's newest steps there, what agent activity is
 // collected, and the private sites. The worker applies and reports all of it; this page only shows
 // it, in the owner's language.
-type Observation = "full" | "standard" | "off";
-type Status = {
-  enabled: boolean;
-  observation?: Observation;
-  connected: boolean;
-  tabs?: number;
-  // The contract of a host that refused this extension's.
-  hostContract?: number;
-  // The connected host's build.
-  host?: { version: string; commit: string };
-  version?: string;
-  privateSites?: string[];
-  // The owner's tab: its site, and the agent group it belongs to.
-  site?: string;
-  group?: string;
-  hasTab?: boolean;
-};
-type Recording = {
-  recording?: boolean;
-  id?: string;
-  events?: number;
-  error?: string;
-  message?: string;
-};
-type Language = "en" | "ru";
+import i18next from "i18next";
+import ICU from "i18next-icu";
+import type {
+  BrowserStatus,
+  FrontendConfig,
+  Observation,
+  OwnerRecording,
+} from "./generated/types.gen.js";
+
+type Status = Partial<BrowserStatus> & Pick<BrowserStatus, "enabled" | "connected">;
+type Recording = OwnerRecording;
+type Language = "en" | "ru" | "kk" | "ar" | "zh-CN";
 type Messages = Record<string, { message: string }>;
+const LANGUAGES: readonly Language[] = ["en", "ru", "kk", "ar", "zh-CN"];
+const translations = i18next.createInstance().use(ICU);
+let config: FrontendConfig;
 
 // A popup opened as a page of its own, as in tests, names the tab it acts for.
 const forTab = Number(new URLSearchParams(location.search).get("tab")) || undefined;
@@ -41,8 +31,9 @@ let lastRecording: Recording = {};
 let lastSteps: { lines?: string[]; error?: string } = {};
 
 function t(key: string, ...values: (string | number)[]): string {
-  const text = messages[key]?.message ?? key;
-  return text.replace(/\$(\d)/g, (_, index: string) => String(values[Number(index) - 1] ?? ""));
+  return String(
+    translations.t(key, Object.fromEntries(values.map((value, index) => [`v${index + 1}`, value]))),
+  );
 }
 
 async function loadLanguage(): Promise<void> {
@@ -50,20 +41,42 @@ async function loadLanguage(): Promise<void> {
     .get(LANGUAGE)
     .then((values) => values[LANGUAGE] as unknown)
     .catch(() => undefined);
+  const ui = chrome.i18n.getUILanguage().toLowerCase();
   const wanted =
-    stored === "en" || stored === "ru"
-      ? stored
-      : chrome.i18n.getUILanguage().toLowerCase().startsWith("ru")
-        ? "ru"
-        : "en";
+    LANGUAGES.find((locale) => locale === stored) ??
+    LANGUAGES.find(
+      (locale) => ui === locale.toLowerCase() || ui.startsWith(`${locale.toLowerCase()}-`),
+    ) ??
+    (ui.startsWith("zh") ? "zh-CN" : "en");
   language = wanted;
-  messages = (await fetch(chrome.runtime.getURL(`_locales/${language}/messages.json`)).then(
-    (response) => response.json(),
-  )) as Messages;
+  messages = (await fetch(
+    chrome.runtime.getURL(`_locales/${language.replace("-", "_")}/messages.json`),
+  ).then((response) => response.json())) as Messages;
+  const dictionary = Object.fromEntries(
+    Object.entries(messages).map(([key, value]) => [key, value.message]),
+  );
+  if (!translations.isInitialized)
+    await translations.init({
+      lng: language,
+      fallbackLng: "en",
+      resources: { [language]: { translation: dictionary } },
+      interpolation: { escapeValue: false },
+    });
+  else {
+    translations.addResourceBundle(language, "translation", dictionary, true, true);
+    await translations.changeLanguage(language);
+  }
   document.documentElement.lang = language;
+  document.documentElement.dir = language === "ar" ? "rtl" : "ltr";
+  document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+  document.title = t("title");
   for (const node of document.querySelectorAll<HTMLElement>("[data-i18n]")) {
     node.textContent = t(node.dataset.i18n ?? "");
   }
+  for (const node of document.querySelectorAll<HTMLElement>("[data-i18n-aria]"))
+    node.setAttribute("aria-label", t(node.dataset.i18nAria ?? ""));
   for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-language]")) {
     button.setAttribute("aria-pressed", String(button.dataset.language === language));
   }
@@ -74,7 +87,12 @@ function onClick(button: HTMLButtonElement, work: () => Promise<void>): void {
     void work().catch(() => {
       // A lost reply does not prove the worker rejected the change. Show the broken link;
       // reopening the popup reads the authoritative state without retrying the action.
-      show({ ...last, enabled: last?.enabled ?? false, connected: false });
+      show({
+        ...last,
+        enabled: last?.enabled ?? false,
+        consentRequired: last?.consentRequired ?? true,
+        connected: false,
+      });
     });
   });
 }
@@ -94,6 +112,8 @@ const DESCRIPTIONS: Record<Observation, string> = {
 };
 
 function show(status: Status): void {
+  if (typeof status.enabled !== "boolean" || typeof status.connected !== "boolean")
+    throw new Error("configuration_unavailable");
   last = status;
   render();
 }
@@ -105,7 +125,7 @@ function render(): void {
 }
 
 function renderStatus(status: Status): void {
-  const mismatch = status.hostContract !== undefined;
+  const mismatch = status.hostContract !== undefined || status.hostUpdateRequired === true;
   const link = mismatch ? "mismatch" : !status.connected ? "down" : status.enabled ? "ok" : "off";
   document.body.dataset.link = link;
   document.body.dataset.compatible = String(!mismatch);
@@ -118,7 +138,9 @@ function renderStatus(status: Status): void {
   const notice = element("mismatch");
   if (notice) {
     notice.hidden = !mismatch;
-    notice.textContent = mismatch ? t("mismatch", status.hostContract ?? "") : "";
+    notice.textContent = mismatch
+      ? t(status.hostUpdateRequired ? "hostUpdate" : "mismatch", config.minimumHost)
+      : "";
   }
   // Without the host nothing works: a store install tells the owner where to get it.
   const setup = element("setup");
@@ -126,7 +148,7 @@ function renderStatus(status: Status): void {
   const toggle = element<HTMLButtonElement>("toggle");
   if (toggle) {
     toggle.setAttribute("aria-checked", String(status.enabled));
-    toggle.disabled = false;
+    toggle.disabled = status.consentRequired === true;
   }
   const control = element("control-note");
   if (control) {
@@ -134,14 +156,19 @@ function renderStatus(status: Status): void {
       ? `${t("controlOn")}${status.tabs ? ` ${t("agentTabs", status.tabs)}` : ""}`
       : t("controlOff");
   }
-  const current = status.observation ?? "full";
+  const current = status.observation ?? "standard";
   for (const button of profiles) {
     button.setAttribute("aria-pressed", String(button.dataset.profile === current));
-    button.disabled = false;
+    button.disabled = status.consentRequired === true;
   }
   const described = element("observation");
   if (described) described.textContent = t(DESCRIPTIONS[current]);
   document.body.dataset.observation = current;
+  document.body.dataset.consent = String(status.consentRequired === true);
+  const consent = element("consent");
+  if (consent) consent.hidden = status.consentRequired !== true;
+  const previous = element("previous-choice");
+  if (previous) previous.textContent = t("previousChoice", t(current));
   renderTab(status);
   renderPrivate(status);
   const versions = element("versions");
@@ -203,7 +230,7 @@ function renderPrivate(status: Status): void {
       remove.textContent = "×";
       remove.title = t("privateRemove", site);
       remove.setAttribute("aria-label", t("privateRemove", site));
-      remove.addEventListener("click", () => void changePrivate("remove", site));
+      onClick(remove, () => changePrivate("remove", site));
       item.append(remove);
       return item;
     }),
@@ -420,14 +447,64 @@ async function refreshSteps(): Promise<void> {
   renderSteps(lastSteps);
 }
 
-void loadLanguage()
-  .catch(() => undefined)
-  .then(async () => {
-    show((await chrome.runtime.sendMessage({ type: "get", tab: forTab })) as Status);
-    await Promise.all([ask("status"), refreshSteps()]);
+async function start(): Promise<void> {
+  config = (await fetch(chrome.runtime.getURL("public-settings.json")).then((response) =>
+    response.json(),
+  )) as FrontendConfig;
+  for (const [id, url] of [
+    ["guide-link", config.guideUrl],
+    ["privacy-link", config.privacyUrl],
+    ["consent-privacy", config.privacyUrl],
+    ["install-link", config.installUrl],
+  ]) {
+    const anchor = element<HTMLAnchorElement>(id ?? "");
+    if (anchor && url) anchor.href = url;
+  }
+  await loadLanguage();
+  show((await chrome.runtime.sendMessage({ type: "get", tab: forTab })) as Status);
+  if (!last?.consentRequired) await Promise.all([ask("status"), refreshSteps()]);
+  let refreshing = false;
+  setInterval(() => {
+    if (refreshing) return;
+    refreshing = true;
+    void (async () => {
+      show((await chrome.runtime.sendMessage({ type: "get", tab: forTab })) as Status);
+      if (last?.consentRequired || !last?.connected) return;
+      await refreshSteps();
+      if (lastRecording.recording) await ask("status");
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        refreshing = false;
+      });
+  }, config.refreshMs);
+}
+void start().catch(() => {
+  document.body.dataset.link = "down";
+  const notice = element("setup");
+  if (notice) {
+    notice.hidden = false;
+    notice.textContent = chrome.i18n.getMessage("setupFailed");
+  }
+});
+
+for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-consent-profile]")) {
+  onClick(button, async () => {
+    for (const each of document.querySelectorAll<HTMLButtonElement>("button[data-consent-profile]"))
+      each.disabled = true;
+    try {
+      show(
+        (await chrome.runtime.sendMessage({
+          type: "accept",
+          profile: button.dataset.consentProfile,
+          tab: forTab,
+        })) as Status,
+      );
+    } finally {
+      for (const each of document.querySelectorAll<HTMLButtonElement>(
+        "button[data-consent-profile]",
+      ))
+        each.disabled = false;
+    }
   });
-// While the popup stays open, the agent's newest steps and the recorder keep current.
-setInterval(() => {
-  void refreshSteps();
-  if (lastRecording.recording) void ask("status");
-}, 2000);
+}

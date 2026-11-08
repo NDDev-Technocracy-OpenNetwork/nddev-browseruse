@@ -1,0 +1,285 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "nddev-browseruse local contracts",
+    "description": "",
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0"
+    },
+    "version": "2"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "BadgeColors": {
+        "type": "object",
+        "description": "Colors projected from the public DS for Chrome APIs that cannot accept CSS tokens.",
+        "required": [
+          "neutral",
+          "warning",
+          "error",
+          "accent"
+        ],
+        "properties": {
+          "accent": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "neutral": {
+            "type": "string"
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "BrowserStatus": {
+        "type": "object",
+        "description": "Popup projection; website, group and journal values are local operation results, never logs.",
+        "required": [
+          "enabled",
+          "observation",
+          "connected",
+          "consentRequired",
+          "hostUpdateRequired",
+          "tabs",
+          "version",
+          "privateSites",
+          "hasTab"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean"
+          },
+          "consentRequired": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasTab": {
+            "type": "boolean"
+          },
+          "host": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Build"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hostContract": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "hostUpdateRequired": {
+            "type": "boolean"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/Observation"
+          },
+          "privateSites": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "site": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tabs": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Build": {
+        "type": "object",
+        "required": [
+          "version",
+          "commit"
+        ],
+        "properties": {
+          "commit": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FrontendConfig": {
+        "type": "object",
+        "description": "Public, non-secret settings shipped with this extension. Changes take effect at worker restart.",
+        "required": [
+          "minimumHost",
+          "consentRevision",
+          "initialObservation",
+          "privateSitesLimit",
+          "awakeIdleMs",
+          "setupTimeoutMs",
+          "ownerReplyMs",
+          "ownerRequestsLimit",
+          "refreshMs",
+          "batchEvents",
+          "batchBytes",
+          "partsBytes",
+          "guideUrl",
+          "privacyUrl",
+          "installUrl"
+        ],
+        "properties": {
+          "awakeIdleMs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Milliseconds without agent work before the tiny keep-awake capture ends, per tab.",
+            "minimum": 0
+          },
+          "batchBytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum estimated bytes in one native-message batch, per extension connection.",
+            "minimum": 0
+          },
+          "batchEvents": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum events in one native-message batch, per extension connection.",
+            "minimum": 0
+          },
+          "consentRevision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Monotonic revision of the prominent disclosure accepted in this browser profile.",
+            "minimum": 0
+          },
+          "guideUrl": {
+            "type": "string"
+          },
+          "initialObservation": {
+            "$ref": "#/components/schemas/Observation",
+            "description": "Desired profile for a new installation; effective collection remains Off until consent."
+          },
+          "installUrl": {
+            "type": "string"
+          },
+          "minimumHost": {
+            "type": "string",
+            "description": "Minimum native host version that enforces observation revocation."
+          },
+          "ownerReplyMs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Milliseconds for a popup recorder or journal response, per request.",
+            "minimum": 0
+          },
+          "ownerRequestsLimit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Shared maximum in-flight recorder and journal requests, per browser connection.",
+            "minimum": 0
+          },
+          "partsBytes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum joined message bytes, per extension connection.",
+            "minimum": 0
+          },
+          "privacyUrl": {
+            "type": "string"
+          },
+          "privateSitesLimit": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum number of private hostnames in this browser profile.",
+            "minimum": 0
+          },
+          "refreshMs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Milliseconds between popup activity refreshes; no refresh before consent.",
+            "minimum": 0
+          },
+          "setupTimeoutMs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Milliseconds for one browser setup command, per command.",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Observation": {
+        "type": "string",
+        "enum": [
+          "full",
+          "standard",
+          "off"
+        ]
+      },
+      "OwnerRecording": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "events": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recording": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

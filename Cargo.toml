@@ -9,7 +9,7 @@ homepage = "https://nddev.ai"
 repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse"
 
 [workspace]
-members = ["tools"]
+members = ["tools", "crates/contract"]
 resolver = "3"
 
 [[bin]]
@@ -17,6 +17,7 @@ name = "nddev-browseruse"
 path = "src/bin/nddev-browseruse.rs"
 
 [dependencies]
+nddev-browseruse-contract = { path = "crates/contract" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

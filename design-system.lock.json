@@ -1,0 +1,13 @@
+{
+  "repository": "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system",
+  "repositoryId": 1411020218,
+  "revision": "dbdf11b27fc6245b7942ad3e271f171602fce931",
+  "tag": "v0.0.1-alpha.9",
+  "archive": "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-opennetwork-design-system/releases/download/v0.0.1-alpha.9/opennetwork-design-system-0.0.1-alpha.9.tar.gz",
+  "archiveSha256": "d0fb66e27dee47fad908dd42b0d3e91087831eeda782c4efff28d1c6846ced38",
+  "archiveBytes": 8619329,
+  "directory": "opennetwork-design-system-0.0.1-alpha.9",
+  "webSha256": "734dba2cf795de6f4e3d33e646a002ecc59602b8f8774af510407a56c5e1a21b",
+  "fontManifestSha256": "d1ebf6ce576979582db91c5a5db30a773e0841a8c8b45f60803554317e4b3eaa",
+  "digestFormat": "sha256 of sorted UTF-8 lines: file-sha256 + two spaces + relative POSIX path + LF"
+}

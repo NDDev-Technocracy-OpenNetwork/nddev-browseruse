@@ -403,6 +403,7 @@ beforeAll(async () => {
     viewport: null,
     args: [
       "--remote-debugging-port=0",
+      "--window-size=800,800",
       `--disable-extensions-except=${installed},${foreign}`,
       `--load-extension=${installed},${foreign}`,
       ...(process.env.NDS_E2E_DIAGNOSTICS === "1" ? ["--enable-logging=stderr"] : []),
@@ -419,6 +420,39 @@ beforeAll(async () => {
   // dialog on pages it watches and race the agent's own handler.
   for (const page of observer.pages()) page.on("dialog", () => undefined);
   observer.on("page", (page) => page.on("dialog", () => undefined));
+  // Consent is an explicit owner action in this isolated fixture only. Older comparison
+  // bundles predate this flow and are left unchanged.
+  if (JSON.parse(readFileSync(join(installed, "manifest.json"), "utf8")).version !== "0.2.3") {
+    const consent = await observer.newPage();
+    await consent.goto(`chrome-extension://${extensionId}/popup.html`);
+
+    for (const language of ["en", "ru", "kk", "ar", "zh-CN"]) {
+      await consent.evaluate(
+        (popupLanguage) => chrome.storage.local.set({ popupLanguage }),
+        language,
+      );
+      await consent.reload();
+      await consent.waitForFunction(
+        (language) =>
+          document.documentElement.lang === language && document.body.dataset.consent === "true",
+        language,
+      );
+      await consent.evaluate(() => document.fonts.ready);
+      await consent.bringToFront();
+      expect(
+        await consent.evaluate(() => document.body.scrollHeight),
+        `${language} disclosure height`,
+      ).toBeLessThanOrEqual(600);
+      if (process.env.NDS_E2E_SHOTS)
+        await consent
+          .locator("body")
+          .screenshot({ path: join(process.env.NDS_E2E_SHOTS, `consent-${language}.png`) });
+    }
+    await consent.locator('[data-language="en"]').click();
+    await consent.locator('[data-consent-profile="full"]').click();
+    await consent.waitForFunction(() => document.body.dataset.consent === "false");
+    await consent.close();
+  }
   // The host binds its sockets before the extension's hello arrives; scenarios start once the
   // host reports the connected extension, which takes longer on slower or loaded runners.
   // The host's own answer decides: a presence check never saw the control socket on Windows.
@@ -2270,74 +2304,102 @@ test("the activity journal keeps what agents did and the popup's off stops it", 
 // The owner keeps a site private in the popup: agents still work there, the journal keeps that
 // they did, never what, and the popup shows the agent's newest steps.
 test("a private site keeps its content out of the journal, and the popup shows the steps", async () => {
+  await opened("privacy-ui");
   const site = `http://localhost:${fixture.port}/journal`;
-  const opened = await run(
-    "acceptance",
+  const created = await run(
+    "privacy-ui",
     `state.private = await context.newPage(); await state.private.goto("${site}"); return "ok"`,
   );
-  expect(opened.body.value).toBe("ok");
+  expect(created.body.value).toBe("ok");
   const popup = await observer.newPage();
-  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  const tab = await popup.evaluate(async (url) => {
-    const tabs = (globalThis as unknown as { chrome: ChromeTabs }).chrome.tabs;
-    return (await tabs.query({})).find((each) => each.url === url)?.id;
-  }, site);
-  await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tab}`);
-  await popup.locator("#private-add:not([disabled])").click();
-  await popup.waitForFunction(() =>
-    document.getElementById("private")?.textContent?.includes("localhost"),
-  );
-  const result = await run(
-    "acceptance",
-    `await state.private.fill("#email", "private-note@test");
+  try {
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    const tab = await popup.evaluate(async (url) => {
+      const tabs = (globalThis as unknown as { chrome: ChromeTabs }).chrome.tabs;
+      return (await tabs.query({})).find((each) => each.url === url)?.id;
+    }, site);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tab}`);
+    await popup.locator("#private-add:not([disabled])").click();
+    await popup.waitForFunction(() =>
+      document.getElementById("private")?.textContent?.includes("localhost"),
+    );
+    const result = await run(
+      "privacy-ui",
+      `await state.private.fill("#email", "private-note@test");
      await state.private.evaluate(() => fetch("/api/journal?id=8").then((r) => r.json()));
      await state.private.waitForTimeout(1500); return "done"`,
-    "--timeout",
-    "20000",
-  );
-  expect(result.body.value).toBe("done");
-  await Bun.sleep(1500);
-  const listed = await plain("-s", "acceptance", "activity", "--last", "20", "--full");
-  expect(listed.stdout).not.toContain("private-note");
-  expect(listed.stdout).not.toContain("tok-should-not-stay");
-  const records = listed.stdout
-    .trim()
-    .split("\n")
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
-  const fill = records.findLast((record) => record.type === "action" && record.api === "fill");
-  // The action names its page, so the journal knows its site without guessing.
-  expect(fill).toMatchObject({ private: true, page: expect.any(Number) });
-  expect(fill?.value).toBeUndefined();
-  expect(fill?.locator).toBeUndefined();
-  // The popup lists the group's newest steps, the private ones marked.
-  await popup.reload();
-  await popup.waitForFunction(() => Number(document.body.dataset.recent) > 0);
-  const step = popup.locator('#recent li[data-type="action"][data-private="true"]').first();
-  expect(await step.textContent()).toContain("fill");
-  // With an agent tab, its steps and a private site, the popup still fits Chrome's 600-pixel
-  // popup height in both languages, so nothing hides below a scrollbar.
-  for (const language of ["ru", "en"]) {
-    await popup.evaluate((value) => {
-      const api = globalThis as unknown as {
-        chrome: { storage: { local: { set(items: object): Promise<void> } } };
-      };
-      return api.chrome.storage.local.set({ popupLanguage: value });
-    }, language);
+      "--timeout",
+      "20000",
+    );
+    expect(result.body.value).toBe("done");
+    await Bun.sleep(1500);
+    const listed = await plain("-s", "privacy-ui", "activity", "--last", "20", "--full");
+    expect(listed.stdout).not.toContain("private-note");
+    expect(listed.stdout).not.toContain("tok-should-not-stay");
+    const records = listed.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const fill = records.findLast((record) => record.type === "action" && record.api === "fill");
+    // The action names its page, so the journal knows its site without guessing.
+    expect(fill).toMatchObject({ private: true, page: expect.any(Number) });
+    expect(fill?.value).toBeUndefined();
+    expect(fill?.locator).toBeUndefined();
+    // The popup lists the group's newest steps, the private ones marked.
     await popup.reload();
     await popup.waitForFunction(() => Number(document.body.dataset.recent) > 0);
-    expect(await popup.evaluate(() => document.body.scrollHeight)).toBeLessThanOrEqual(600);
+    const step = popup.locator('#recent li[data-type="action"][data-private="true"]').first();
+    expect(await step.textContent()).toContain("fill");
+    // With an agent tab, its steps and a private site, the popup still fits Chrome's 600-pixel
+    // popup height in all five languages, so nothing hides below a scrollbar.
+    // Resize the real isolated window: emulating a taller viewport can tile the old
+    // compositor surface on extension pages. This touches only this fixture's window.
+    await popup.evaluate(async () => {
+      const window = await chrome.windows.getCurrent();
+      if (window.id !== undefined)
+        await chrome.windows.update(window.id, { left: 0, top: 0, width: 800, height: 800 });
+    });
+    for (const language of ["ru", "en", "kk", "ar", "zh-CN"]) {
+      await popup.evaluate((value) => {
+        const api = globalThis as unknown as {
+          chrome: { storage: { local: { set(items: object): Promise<void> } } };
+        };
+        return api.chrome.storage.local.set({ popupLanguage: value });
+      }, language);
+      await popup.reload();
+      await popup.waitForFunction(() => Number(document.body.dataset.recent) > 0);
+      await popup.evaluate(() => document.fonts.ready);
+      await popup.bringToFront();
+      if (process.env.NDS_E2E_SHOTS)
+        await popup.locator("body").screenshot({
+          path: join(process.env.NDS_E2E_SHOTS, `popup-${language}.png`),
+        });
+      expect(
+        await popup.evaluate(() => document.body.scrollHeight),
+        `${language} popup height`,
+      ).toBeLessThanOrEqual(600);
+      expect(await popup.evaluate(() => document.documentElement.dir)).toBe(
+        language === "ar" ? "rtl" : "ltr",
+      );
+    }
+    await popup.screenshot({ path: join(root, "popup-agent-tab.png") });
+    if (process.env.NDS_E2E_SHOTS)
+      cpSync(
+        join(root, "popup-agent-tab.png"),
+        join(process.env.NDS_E2E_SHOTS, "popup-agent-tab.png"),
+      );
+    // The owner keeps the site's content again.
+    await popup.locator("#private li button").click();
+    await popup.waitForFunction(() => document.getElementById("private")?.dataset.count === "0");
+  } finally {
+    await popup
+      .evaluate(() =>
+        chrome.runtime.sendMessage({ type: "private", action: "remove", site: "localhost" }),
+      )
+      .catch(() => undefined);
+    await popup.close();
+    await cli("session", "close", "privacy-ui", "--close-tabs");
   }
-  await popup.screenshot({ path: join(root, "popup-agent-tab.png") });
-  if (process.env.NDS_E2E_SHOTS)
-    cpSync(
-      join(root, "popup-agent-tab.png"),
-      join(process.env.NDS_E2E_SHOTS, "popup-agent-tab.png"),
-    );
-  // The owner keeps the site's content again.
-  await popup.locator("#private li button").click();
-  await popup.waitForFunction(() => document.getElementById("private")?.dataset.count === "0");
-  await popup.close();
-  await run("acceptance", "await state.private.close(); delete state.private");
 });
 
 // The journal's records of a burst of large responses outgrow one host command (1 MiB); the
@@ -2850,8 +2912,7 @@ test("host telemetry is schema-valid and carries no page data", () => {
   const events = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
   const names = new Set(events.map((event) => event["event.name"]));
   for (const name of [
-    "browser.host.started",
-    "browser.extension.connected",
+    "browser.observation.full",
     "browser.session.opened",
     "browser.execute.completed",
     "browser.control.disabled",
@@ -2866,6 +2927,9 @@ test("host telemetry is schema-valid and carries no page data", () => {
   ]) {
     expect(names).toContain(name);
   }
+  // Every connection starts Off until the host build and owner consent are known.
+  expect(names).not.toContain("browser.host.started");
+  expect(names).not.toContain("browser.extension.connected");
   expect(names).not.toContain("logging.fields.rejected");
   expect(names).not.toContain("logging.event.rejected");
   const text = lines.join("\n");

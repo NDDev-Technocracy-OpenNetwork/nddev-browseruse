@@ -1,0 +1,233 @@
+{
+  "extensionName": {
+    "message": "nddev-browseruse"
+  },
+  "extensionDescription": {
+    "message": "Агенттеріңіз жергілікті хост арқылы өз қойынды топтарында жұмыс істейді. Белсенділікті жинауды өзіңіз басқарасыз."
+  },
+  "actionTitle": {
+    "message": "nddev-browseruse"
+  },
+  "title": {
+    "message": "nddev-browseruse"
+  },
+  "linkOk": {
+    "message": "Қосылды"
+  },
+  "linkOff": {
+    "message": "Агенттер кідіртілді"
+  },
+  "linkDown": {
+    "message": "Хост іске қосылмаған"
+  },
+  "linkMismatch": {
+    "message": "Жаңарту қажет"
+  },
+  "mismatch": {
+    "message": "Кеңейтім мен жергілікті хостты үйлесімді нұсқаларға жаңартыңыз."
+  },
+  "setupNeeded": {
+    "message": "Бұл құрылғыда жергілікті хост іске қосылмаған. Ол агенттердің браузерде жұмыс істеуіне қажет."
+  },
+  "setupLink": {
+    "message": "Жергілікті хостты орнату"
+  },
+  "controlTitle": {
+    "message": "Агенттерге рұқсат"
+  },
+  "controlOn": {
+    "message": "Агенттер өз қойынды топтарында жұмыс істей алады."
+  },
+  "controlOff": {
+    "message": "Агенттер әрекет ете алмайды, қойындылары босатылды."
+  },
+  "agentTabs": {
+    "message": "Агенттің ашық қойындылары: {v1}."
+  },
+  "tabTitle": {
+    "message": "Осы қойынды"
+  },
+  "tabAgent": {
+    "message": "«{v1}» агент тобы"
+  },
+  "tabOwner": {
+    "message": "Өз қойындыңыз"
+  },
+  "tabNone": {
+    "message": "Қойынды жоқ"
+  },
+  "tabOwnerNote": {
+    "message": "Агенттер оны пайдалана алмайды. Бөлісу үшін агент тобына жылжытыңыз."
+  },
+  "record": {
+    "message": "Әрекеттерімді жазу"
+  },
+  "stopRecord": {
+    "message": "Жазуды тоқтату"
+  },
+  "recordingNow": {
+    "message": "Әрекеттеріңіз жазылуда: {v1}."
+  },
+  "recordedDone": {
+    "message": "{v1} әрекет жазылды. Агент оларды `recorder events` арқылы оқиды."
+  },
+  "recordHint": {
+    "message": "Осындағы басу, теру және өтулер агент қайталай алатын қадамдарға айналады."
+  },
+  "refusedNoAgentTab": {
+    "message": "Әрекеттеріңізді жазу үшін агент тобының қойындысын ашыңыз."
+  },
+  "refusedSession": {
+    "message": "Бұл агент тобының ашық сессиясы жоқ."
+  },
+  "refusedBusy": {
+    "message": "Агент кодты орындап жатыр; сәлден соң қайталаңыз."
+  },
+  "refusedPermission": {
+    "message": "Агенттерге рұқсат өшірілген."
+  },
+  "refusedHost": {
+    "message": "Жергілікті хост қосылмаған."
+  },
+  "refusedTimeout": {
+    "message": "Жергілікті хост жауап бермеді."
+  },
+  "privateIs": {
+    "message": "Жеке"
+  },
+  "privateAddAny": {
+    "message": "Жеке ету"
+  },
+  "privateTitle": {
+    "message": "Жеке сайттар"
+  },
+  "privateNote": {
+    "message": "Агенттер ол жерде жұмыс істейді, бірақ журналда мазмұны сақталмайды."
+  },
+  "privateRemove": {
+    "message": "{v1} мазмұнын қайта сақтау"
+  },
+  "activityTitle": {
+    "message": "Агент мұнда не істеді"
+  },
+  "activityNone": {
+    "message": "Әзірге ештеңе жоқ. Қадамдар толық жинау режимінде көрсетіледі."
+  },
+  "activityNoTab": {
+    "message": "Агенттің әрекеттерін көру үшін оның тобының қойындысын ашыңыз."
+  },
+  "activityHost": {
+    "message": "Жергілікті хост жауап бермеді."
+  },
+  "activityHint": {
+    "message": "Алдымен жаңалары. Агент журналды `nddev-browseruse -s <project> activity` арқылы оқиды."
+  },
+  "kindAction": {
+    "message": "әрекет"
+  },
+  "kindNavigation": {
+    "message": "бет"
+  },
+  "kindPage": {
+    "message": "қойынды"
+  },
+  "kindNetwork": {
+    "message": "сұрау"
+  },
+  "kindExecution": {
+    "message": "орындау"
+  },
+  "kindDownload": {
+    "message": "жүктеу"
+  },
+  "kindConsole": {
+    "message": "консоль"
+  },
+  "kindDialog": {
+    "message": "диалог"
+  },
+  "kindPageError": {
+    "message": "қате"
+  },
+  "kindRecording": {
+    "message": "жазба"
+  },
+  "kindPersonAction": {
+    "message": "сіз"
+  },
+  "kindToast": {
+    "message": "хабар"
+  },
+  "kindOther": {
+    "message": "оқиға"
+  },
+  "private": {
+    "message": "жеке"
+  },
+  "observationTitle": {
+    "message": "Белсенділікті жинау"
+  },
+  "full": {
+    "message": "Толық"
+  },
+  "standard": {
+    "message": "Стандартты"
+  },
+  "off": {
+    "message": "Өшірулі"
+  },
+  "observationFull": {
+    "message": "Осы құрылғыдағы толық журнал; танылған құпиялар өшіріледі."
+  },
+  "observationStandard": {
+    "message": "Тек атаулар, уақыт және нәтижелер; бет мазмұнынсыз."
+  },
+  "observationOff": {
+    "message": "Ештеңе жиналмайды, әрекеттерді жазу өшірулі."
+  },
+  "guide": {
+    "message": "Агент нұсқаулығы"
+  },
+  "privacyPolicy": {
+    "message": "Құпиялылық"
+  },
+  "versions": {
+    "message": "Кеңейтім {v1} · хост {v2}"
+  },
+  "versionsNoHost": {
+    "message": "Кеңейтім {v1}"
+  },
+  "pinElement": {
+    "message": "Элементті агентке бекіту"
+  },
+  "hostUpdate": {
+    "message": "Жалғастыру үшін {v1} не жаңарақ жергілікті хостты орнатыңыз. Ол жинау таңдауыңызды орындайды."
+  },
+  "consentTitle": {
+    "message": "Белсенділікті жинауды таңдаңыз"
+  },
+  "consentPurpose": {
+    "message": "Таңдаған агенттеріңіз өз қойынды топтарында беттерді оқып, әрекет етеді. Сұрауларыңызды орындау үшін беттер мен нәтижелер оларға беріледі, жинау өшірілгенде де."
+  },
+  "consentData": {
+    "message": "Толық режим осы құрылғыда танылған құпиялары өшірілген журналды сақтайды. Стандартты режим тек операция метадеректерін сақтайды. Өшірулі режим жинау мен әрекет жазуды тоқтатады. Кеңейтім NDDev-ке диагностика жібермейді."
+  },
+  "previousChoice": {
+    "message": "Сақталған таңдау: {v1}. Рұқсат пен жеке сайттар сақталды. Төменде таңдағанша жинау өшірулі."
+  },
+  "useFull": {
+    "message": "Толық · жергілікті журнал"
+  },
+  "useStandard": {
+    "message": "Стандартты · метадеректер"
+  },
+  "useOff": {
+    "message": "Өшірулі · жинаусыз"
+  },
+  "languageTitle": {
+    "message": "Тіл"
+  },
+  "setupFailed": {
+    "message": "Кеңейтім файлдары жоқ не оқылмайды. Кеңейтімді қайта жүктеңіз немесе қайта орнатыңыз."
+  }
+}

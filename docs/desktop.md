@@ -21,7 +21,8 @@ inside the tab groups that the owner grants them. Phones are described in [mobil
   executor, connected to a session-scoped CDP endpoint.
 - **The owner's controls** are in the extension's popup:
   - the switch, which turns agent control on or off;
-  - the observation profile, Full, Standard or Off ([observability.md](observability.md)).
+  - the observation profile, Full, Standard or Off ([observability.md](observability.md));
+  - the prominent disclosure on first use or an upgrade that needs renewed acceptance.
 - **Owner actions.** The owner hands a tab to an agent by moving it into the agent's group, and
   pins an element with the context menu.
 
@@ -72,3 +73,24 @@ Edge's assigned store ID must also be admitted and tested before its release.
   extension older than the host, the host refuses it, `status` reports `compatible: false`, and
   the extension shows `!` on its icon and explains in its popup which side to update.
 
+
+## Public UI and contracts
+
+The popup uses the canonical Apache OpenNetwork DS release pinned in
+`design-system.lock.json`. The vendored web package is copied unchanged and
+checked by digest. Product font faces come from that release's verified font
+manifest. Chromium badge colors are projected from the same tokens, rather than
+maintained as a second palette. All fonts are local; the extension loads no UI
+code, fonts or message catalogs from a CDN.
+
+The UI has English, Russian, Kazakh, Arabic and Simplified Chinese catalogs.
+Arabic uses RTL; dynamic messages use i18next with ICU. Chromium's Chinese locale
+directory is `zh_CN`, while the UI language identifier is `zh-CN`.
+
+`crates/contract` declares public settings and owner-facing browser types. Utoipa
+produces `contracts/openapi.json`; Hey API produces the TypeScript types. The
+native TS 7 typechecker stays separate from the TS 6 compiler API package needed
+by the schema producer. `config/common.toml`, `dev.toml` and `production.toml`
+are validated by the same typed loader, which rejects duplicate and unknown
+values. `just generate` produces the shipped public projection. Check reads
+only; test rebuilds generated files in an isolated output directory to catch drift.
