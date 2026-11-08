@@ -25,8 +25,12 @@ import { launchFixture } from "./launch.js";
 
 const windows = process.platform === "win32";
 const repository = resolve(import.meta.dir, "..");
-const chrome = required("NDS_TEST_CHROME");
+const chromeExecutable = required("NDS_TEST_CHROME");
 const binary = required("NDS_TEST_HOST");
+const extensionSource =
+  process.env.NDS_TEST_EXTENSION ?? join(repository, "packages/desktop/extension");
+const executorSource =
+  process.env.NDS_TEST_EXECUTOR ?? join(repository, "packages/executor/executor.ts");
 const root = mkdtempSync(join(tmpdir(), "nds-browser-use-acceptance-"));
 // Socket paths must fit sun_path; the run's own directory keeps it isolated. On Windows the
 // temporary directory lies in the user's local application data, as the host requires.
@@ -65,6 +69,8 @@ const env: Record<string, string> = {
   ...(process.env as Record<string, string>),
   XDG_CONFIG_HOME: join(root, "config"),
   XDG_STATE_HOME: join(root, "state"),
+  NDS_BROWSER_DEVICE: "",
+  NDS_BROWSER_PHONE: "",
   NDS_BROWSER_USE_RUNTIME_DIR: runtime,
 };
 
@@ -215,6 +221,12 @@ beforeAll(async () => {
     fetch(request) {
       requests += 1;
       const path = new URL(request.url).pathname;
+      if (path === "/peer") {
+        return new Response(
+          `<!doctype html><title>Peer input fixture</title>${"<p>Scroll fixture</p>".repeat(180)}`,
+          { headers: { "content-type": "text/html" } },
+        );
+      }
       if (path === "/strict-csp") {
         return new Response(
           "<!doctype html><title>Strict CSP</title><h1>Capture fixture</h1><button>Continue</button>",
@@ -341,7 +353,7 @@ beforeAll(async () => {
   const wrapper = join(root, windows ? "host.cmd" : "host.sh");
   mkdirSync(join(prefix, "bin"), { recursive: true });
   cpSync(binary, hostBinary);
-  cpSync(join(repository, "packages/desktop/extension"), installed, { recursive: true });
+  cpSync(extensionSource, installed, { recursive: true });
   if (windows) {
     writeFileSync(wrapper, `@"${hostBinary}" %* 2>>"${hostLog}"\r\n`);
   } else {
@@ -356,7 +368,7 @@ beforeAll(async () => {
     "--bun",
     process.execPath,
     "--executor",
-    join(repository, "packages/executor/executor.ts"),
+    executorSource,
     ...(windows
       ? ["--browser", "chrome-for-testing"]
       : ["--host-dir", join(profile, "NativeMessagingHosts")]),
@@ -382,8 +394,8 @@ beforeAll(async () => {
     }),
   );
   observer = await launchFixture(profile, {
-    executablePath: chrome,
-    headless: true,
+    executablePath: chromeExecutable,
+    headless: process.env.NDS_TEST_HEADED !== "1",
     env,
     // The owner's browser keeps the back-forward cache; Playwright turns it off by default.
     ignoreDefaultArgs: ["--disable-back-forward-cache"],
@@ -430,6 +442,152 @@ afterAll(async () => {
   rmSync(runtime, { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
 });
+
+test("two automation extensions keep wheel and capture responsive in separate groups", async () => {
+  const report = join(repository, ".nddev-reports", "browser-coexistence.json");
+  rmSync(report, { force: true });
+  const build = (await cli("status")).body;
+  const host = build.host as { version?: string; commit?: string } | undefined;
+  const target = await observer.newPage();
+  const url = `${origin}/peer?independent`;
+  await target.goto(url);
+  await target.waitForFunction(() => Boolean(document.documentElement.dataset.peerExtension));
+  const peerId = await target.evaluate(() => document.documentElement.dataset.peerExtension);
+  const controller = await observer.newPage();
+  await controller.goto(`chrome-extension://${peerId}/peer.html`);
+  const tab = await controller.evaluate(async (url) => {
+    const tab = (await chrome.tabs.query({})).find((tab) => tab.url === url);
+    if (tab?.id === undefined) throw new Error("peer_target_missing");
+    const group = await chrome.tabs.group({ tabIds: [tab.id] });
+    await chrome.tabGroups.update(group, { title: "Independent peer fixture", color: "blue" });
+    await chrome.debugger.attach({ tabId: tab.id }, "1.3");
+    return tab.id;
+  }, url);
+  const probe = () =>
+    controller.evaluate(async (tab) => {
+      const timings: { phase: string; durationMs: number }[] = [];
+      const command = async (method: string, params: object = {}) => {
+        const started = performance.now();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          return await Promise.race([
+            chrome.debugger.sendCommand({ tabId: tab }, method, params),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error(method)), 5000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+          timings.push({ phase: method, durationMs: Math.round(performance.now() - started) });
+        }
+      };
+      await command("Runtime.evaluate", { expression: "scrollTo(0, 0)", returnByValue: true });
+      await command("Input.dispatchMouseEvent", {
+        type: "mouseWheel",
+        x: 80,
+        y: 80,
+        deltaX: 0,
+        deltaY: 720,
+      });
+      const evaluated = (await command("Runtime.evaluate", {
+        expression:
+          "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(scrollY))))",
+        awaitPromise: true,
+        returnByValue: true,
+      })) as { result?: { value?: number } } | undefined;
+      const shot = (await command("Page.captureScreenshot")) as { data?: string } | undefined;
+      return { scrollY: evaluated?.result?.value, screenshotBytes: shot?.data?.length, timings };
+    }, tab);
+  let during: Awaited<ReturnType<typeof probe>> | { error: string } = { error: "not_run" };
+  try {
+    // A second automation extension can keep a live preview while NDS wakes its own tab.
+    await controller.evaluate(async (tab) => {
+      chrome.debugger.onEvent.addListener((source, method, params) => {
+        if (source.tabId === tab && method === "Page.screencastFrame" && params) {
+          const sessionId: unknown = Reflect.get(params, "sessionId");
+          if (typeof sessionId === "number")
+            void chrome.debugger
+              .sendCommand({ tabId: tab }, "Page.screencastFrameAck", { sessionId })
+              .catch(() => undefined);
+        }
+      });
+      await chrome.debugger.sendCommand({ tabId: tab }, "Page.startScreencast", {
+        format: "jpeg",
+        quality: 20,
+        maxWidth: 320,
+        maxHeight: 240,
+        everyNthFrame: 1,
+      });
+    }, tab);
+    const before = await probe();
+    expect(before.scrollY).toBeGreaterThan(0);
+    expect(before.screenshotBytes).toBeGreaterThan(32);
+    await opened("coexistence");
+    const agent = await run(
+      "coexistence",
+      `state.page = await context.newPage(); await state.page.goto("${origin}/peer?agent"); return await snapshot({ page: state.page })`,
+    );
+    expect(agent.code).toBe(0);
+    try {
+      during = await probe();
+    } catch (error) {
+      const phases = ["Runtime.evaluate", "Input.dispatchMouseEvent", "Page.captureScreenshot"];
+      during = {
+        error:
+          phases.find((phase) => error instanceof Error && error.message.includes(phase)) ??
+          "peer_connection",
+      };
+    }
+    const own = await run(
+      "coexistence",
+      "await state.page.mouse.move(80, 80); await state.page.mouse.wheel(0, 400); await state.page.waitForFunction(() => scrollY > 0, undefined, { timeout: 4000 }); const shot = await state.page.screenshot(); const scrollY = await state.page.evaluate(() => window.scrollY); return JSON.stringify({ scrollY, screenshotBytes: shot.length })",
+      "--timeout",
+      "6000",
+    );
+    const ownValue =
+      own.code === 0
+        ? (JSON.parse(String(own.body.value)) as { scrollY: number; screenshotBytes: number })
+        : undefined;
+    await cli("session", "close", "coexistence");
+    const after = await probe();
+    mkdirSync(join(repository, ".nddev-reports"), { recursive: true });
+    writeFileSync(
+      report,
+      JSON.stringify(
+        {
+          browser: observer.browser()?.version(),
+          headed: process.env.NDS_TEST_HEADED === "1",
+          peerPreview: true,
+          extension: build.extension,
+          host: { version: host?.version, commit: host?.commit },
+          before,
+          during,
+          after,
+          agent: { code: own.code, ...ownValue },
+        },
+        null,
+        2,
+      ),
+    );
+    expect(during).not.toHaveProperty("error");
+    if ("scrollY" in during) {
+      expect(during.scrollY).toBeGreaterThan(0);
+      expect(during.screenshotBytes).toBeGreaterThan(32);
+    }
+    expect(after.scrollY).toBeGreaterThan(0);
+    expect(after.screenshotBytes).toBeGreaterThan(32);
+    expect(own.code).toBe(0);
+    expect(ownValue?.scrollY).toBeGreaterThan(0);
+    expect(ownValue?.screenshotBytes).toBeGreaterThan(32);
+  } finally {
+    await cli("session", "close", "coexistence");
+    await controller
+      .evaluate((tab) => chrome.debugger.detach({ tabId: tab }), tab)
+      .catch(() => undefined);
+    await controller.close();
+    await target.close();
+  }
+}, 60_000);
 
 test("the connected extension reports enabled control", async () => {
   const status = await cli("status");
@@ -2600,7 +2758,7 @@ test("closing a session cleans only its own area", async () => {
 // this run reaches every Chrome for Testing profile, so a fresh profile still finds the host.
 test.skipIf(windows)("without the host the popup links to its setup", async () => {
   const fresh = await launchFixture(mkdtempSync(join(root, "no-host-")), {
-    executablePath: chrome,
+    executablePath: chromeExecutable,
     headless: true,
     env,
     args: [`--disable-extensions-except=${installed}`, `--load-extension=${installed}`],
