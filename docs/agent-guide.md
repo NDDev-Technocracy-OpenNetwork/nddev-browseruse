@@ -281,6 +281,9 @@ one exists.
   - Copy frames out of `artifacts` before closing the session. `outputDir` can select a
     subdirectory within this session's artifacts; it does not extend their lifetime.
 - **`getCDPSession({ page })`** gives raw CDP; `context.newCDPSession(page)` works too.
+- **`browser.newBrowserCDPSession()`** reaches a session-scoped browser proxy, limited to this
+  task's targets. Call `detach()` when finished: it releases child raw sessions and capacity,
+  and leaves the agent tabs open. Unsupported browser-wide commands are refused.
 - **`createDebugger({ cdp })`** sets breakpoints, steps, reads local variables and evaluates in a
   paused frame. Give it its own CDP session.
 - **`createEditor({ cdp, page })`** searches scripts and style sheets and edits style sheets live.
