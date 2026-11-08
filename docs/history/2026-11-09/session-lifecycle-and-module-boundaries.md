@@ -39,6 +39,19 @@ and the service page; its layout checks exercised five languages, four themes an
 Platform CI and the exact final packet remain required before promotion. Physical Android and
 actual Edge/catalog admission are still outside this qualification and tracked in #18.
 
+The release-profile Linux candidate at 5231feb594281512884fb96fe594b76919544b48 subsequently
+passed 142 nextest cases, 116 Vitest tests and all 83 Chromium/ADB-fixture scenarios against its
+exact staged host/executor/extension. Store ZIP hashes and 27 rendered assets were checked;
+the store artwork was also inspected through browser-use in ordinary Chrome. The packet was
+prepared as a candidate and did not replace an installed host or loaded extension.
+
+A later macOS run conservatively redacted an ordinary fill after its bounded type lookup.
+The acceptance expectation now permits this documented outcome while still requiring sensitive
+values to be redacted. A separate real-browser scenario removes the filled field before lookup
+and confirms that its unverified value and snapshot are omitted. The three focused recorder
+scenarios also passed against the same staged Linux packet. This changed tests and documentation,
+not the runtime's privacy policy or its classification deadline.
+
 Official sources reviewed include Chrome's storage and tabGroups contracts, React createRoot,
 Node's AsyncLocalStorage, nextest's test runner/documentation-test boundary, and Chrome/Edge store
 requirements. Context history from available harnesses informed provenance; incomplete indexes

@@ -1593,8 +1593,10 @@ test("the recorder turns a person's actions in an agent tab into events and fram
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     const actions = events.filter((event) => event.type === "person-action");
+    // Classification has a bounded deadline. A slow browser may conservatively redact a
+    // normal field too; an unconfirmed field must never be assumed safe to retain.
     expect(actions.map((event) => [event.action, event.value ?? event.key ?? null])).toEqual([
-      ["fill", "Ada"],
+      ["fill", expect.stringMatching(/^(?:Ada|\[redacted\])$/)],
       ["fill", "[redacted]"],
       ["click", null],
       ["press", "Tab"],
@@ -1629,6 +1631,51 @@ test("the recorder turns a person's actions in an agent tab into events and fram
     expect((await plain("-s", "recorder", "recorder", "pause")).code).toBe(2);
   } finally {
     await cli("session", "close", "recorder", "--close-tabs");
+  }
+});
+
+test("the recorder redacts a fill whose field disappeared before classification", async () => {
+  const project = "recorder-unknown";
+  await opened(project);
+  try {
+    expect(
+      (
+        await run(
+          project,
+          `const page = await context.newPage(); await page.goto("${origin}/record?uncertain"); await recorder.start(); return "recording"`,
+        )
+      ).body.value,
+    ).toBe("recording");
+    const page = await observed("/record?uncertain");
+    if (!page) throw new Error("recording fixture missing");
+    await page.evaluate(() => {
+      document.getElementById("name")?.addEventListener("input", (event) => {
+        (event.currentTarget as Element).remove();
+      });
+    });
+    await page.fill("#name", "unconfirmed-value");
+    await page.waitForFunction(() => !document.getElementById("name"));
+    let lines = "";
+    const deadline = Date.now() + 10000;
+    while (Date.now() < deadline) {
+      lines = (await plain("-s", project, "recorder", "events", "--type", "person-action")).stdout;
+      if (lines.includes('"action":"fill"')) break;
+      await Bun.sleep(100);
+    }
+    expect(lines).not.toContain("unconfirmed-value");
+    const actions = lines
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ action: "fill", value: "[redacted]" });
+    expect(actions[0]?.aria).toBeUndefined();
+    expect((await run(project, "await recorder.stop(); return 'stopped'")).body.value).toBe(
+      "stopped",
+    );
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
   }
 });
 
