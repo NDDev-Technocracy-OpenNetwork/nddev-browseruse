@@ -307,7 +307,18 @@ fn copy_tree(source: &Path, output: &Path) -> Result {
         let entry = entry?;
         let kind = entry.file_type()?;
         let name = entry.file_name();
-        if name == "test" || name == "src" || name == "tsconfig.json" {
+        if matches!(
+            name.to_str(),
+            Some(
+                "test"
+                    | "src"
+                    | "tsconfig.json"
+                    | "node_modules"
+                    | ".tools"
+                    | ".git"
+                    | ".nddev-reports"
+            )
+        ) {
             continue;
         }
         let target = output.join(name);

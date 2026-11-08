@@ -1,5 +1,5 @@
 /target/
-node_modules/
+node_modules
 .nddev-reports/
 /dist/
-/.tools/
+/.tools

@@ -245,6 +245,12 @@ mod tests {
         let extension = root.join(SOURCE);
         fs::create_dir_all(extension.join("src")).unwrap();
         fs::create_dir_all(extension.join("test")).unwrap();
+        fs::create_dir_all(extension.join("node_modules")).unwrap();
+        fs::write(
+            extension.join("node_modules/cache.js"),
+            "dependency-cache fixture",
+        )
+        .unwrap();
         fs::write(extension.join("src/private.ts"), "source-only fixture").unwrap();
         fs::write(extension.join("test/fixture.ts"), "test-only fixture").unwrap();
         fs::write(extension.join("tsconfig.json"), "{}").unwrap();
