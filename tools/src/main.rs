@@ -101,6 +101,23 @@ fn execute() -> Result {
             let profile = std::env::args().nth(3).unwrap_or_else(|| "release".into());
             stage(Path::new(&output), &profile)
         }
+        "verify-staged" => {
+            let output = std::env::args()
+                .nth(2)
+                .ok_or("verify-staged requires an absolute new native directory")?;
+            let output = Path::new(&output);
+            stage(output, "release")?;
+            let mut browser = Command::new(tool("bun"));
+            browser.args(["run", "e2e"]);
+            browser.env(
+                "NDS_TEST_HOST",
+                output.join("bin").join(executable("nddev-browseruse")),
+            );
+            browser.env("NDS_TEST_EXTENSION", output.join("extension"));
+            browser.env("NDS_TEST_EXECUTOR", output.join("executor/executor.ts"));
+            browser_environment(&mut browser)?;
+            complete(browser)
+        }
         "build" => {
             generate()?;
             let mut build = Command::new("cargo");
@@ -130,20 +147,7 @@ fn execute() -> Result {
             if let Some(pattern) = std::env::args().nth(2) {
                 browser.args(["--test-name-pattern", &pattern]);
             }
-            let chrome = test_browser()?;
-            if cfg!(target_os = "linux")
-                && std::env::var_os("NDS_TEST_CHROME").is_none()
-                && std::env::var_os("CHROME_DEVEL_SANDBOX").is_none()
-            {
-                browser.env(
-                    "CHROME_DEVEL_SANDBOX",
-                    chrome
-                        .parent()
-                        .ok_or("invalid browser executable")?
-                        .join("chrome_sandbox"),
-                );
-            }
-            browser.env("NDS_TEST_CHROME", chrome);
+            browser_environment(&mut browser)?;
             browser.env(
                 "NDS_TEST_HOST",
                 target.join("debug").join(executable("nddev-browseruse")),
@@ -152,6 +156,24 @@ fn execute() -> Result {
         }
         _ => Err("unknown project command".into()),
     }
+}
+
+fn browser_environment(browser: &mut Command) -> Result {
+    let chrome = test_browser()?;
+    if cfg!(target_os = "linux")
+        && std::env::var_os("NDS_TEST_CHROME").is_none()
+        && std::env::var_os("CHROME_DEVEL_SANDBOX").is_none()
+    {
+        browser.env(
+            "CHROME_DEVEL_SANDBOX",
+            chrome
+                .parent()
+                .ok_or("invalid browser executable")?
+                .join("chrome_sandbox"),
+        );
+    }
+    browser.env("NDS_TEST_CHROME", chrome);
+    Ok(())
 }
 
 fn executable(name: &str) -> String {
