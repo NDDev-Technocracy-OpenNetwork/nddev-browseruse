@@ -380,6 +380,7 @@ dependencies = [
  "nddev-browseruse-contract",
  "serde_json",
  "sha2",
+ "tempfile",
  "toml",
 ]
 

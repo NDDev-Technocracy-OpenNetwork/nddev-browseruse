@@ -12,6 +12,7 @@ nddev-browseruse-contract.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -84,6 +84,20 @@ host, stages its executor/dependencies/extension and runs acceptance against tho
 exact files. Native macOS/Windows CI uploads that tested directory. A new output
 directory is required; an existing packet is never overwritten.
 
+The shared full Linux check leaves `dist/qualified-linux.zip`: its exact staged native
+packet, measured browser report, extension ZIPs, authentic captures and rendered store
+material. The archive contains hidden runtime files and retains executable modes.
+Other supported platforms still run native acceptance through `just verify`;
+the Linux CI result supplies the common store packet.
+
+After promotion to `main`, `release.yml` selects successful check, native and security
+runs from the same `dev` push commit. It assembles their packets without rebuilding the
+application, records sources, artifact identities, measured skips and hashes in
+`QUALIFICATION.json`, then verifies every uploaded asset by downloading it before
+publishing. Repeated publication reconciles the same tag and bytes; conflicting tags
+or published assets are refused. Failure leaves an issue with the failed run.
+This publication does not replace a running native host or submit a store listing.
+
 ## Install
 
 Keep the downloaded native packet in a stable directory. Use the Bun version pinned

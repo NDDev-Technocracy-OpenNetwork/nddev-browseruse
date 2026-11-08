@@ -26,7 +26,8 @@ test:
     {{ tools }} test
 
 # Runs the complete validation, including isolated real-browser acceptance.
-verify: check test build browser-check
+verify: check test build
+    {{ tools }} verify-release
 
 # Tests the exact staged release host, executor and extension on a build host.
 verify-staged output: check test build

@@ -18,6 +18,7 @@ mod design;
 mod legal;
 mod licenses;
 mod native_licenses;
+mod release;
 mod store;
 mod store_materials;
 
@@ -44,6 +45,7 @@ fn execute() -> Result {
             design::check()?;
             configuration::check()?;
             legal::check()?;
+            release::check()?;
             check_version()?;
             run("cargo", &["fmt", "--all", "--", "--check"])?;
             run(tool("cargo-shear"), &[])?;
@@ -119,16 +121,18 @@ fn execute() -> Result {
                 .ok_or("verify-staged requires an absolute new native directory")?;
             let output = Path::new(&output);
             stage(output, "release")?;
-            let mut browser = Command::new(tool("bun"));
-            browser.args(["run", "e2e"]);
-            browser.env(
-                "NDS_TEST_HOST",
-                output.join("bin").join(executable("nddev-browseruse")),
-            );
-            browser.env("NDS_TEST_EXTENSION", output.join("extension"));
-            browser.env("NDS_TEST_EXECUTOR", output.join("executor/executor.ts"));
-            browser_environment(&mut browser)?;
-            complete(browser)
+            release::accept(output, None).map(|_| ())
+        }
+        "verify-release" => release::prepare(),
+        "release-requirements" => release::write_requirements(),
+        "release-assemble" => {
+            let input = std::env::args()
+                .nth(2)
+                .ok_or("release-assemble requires input")?;
+            let output = std::env::args()
+                .nth(3)
+                .ok_or("release-assemble requires output")?;
+            release::assemble(Path::new(&input), Path::new(&output))
         }
         "build" => {
             generate()?;
@@ -489,6 +493,7 @@ fn stage(output: &Path, profile: &str) -> Result {
         serde_json::to_vec_pretty(&serde_json::json!({
             "product": "nddev-browseruse", "version": compiled.version, "source": compiled.commit,
             "executorRuntime": runtime,
+            "platform": {"os":std::env::consts::OS,"arch":std::env::consts::ARCH},
             "profile": profile, "qualification": "recorded in the release receipt", "nativeHostRegistered": false
         }))?,
     )?;

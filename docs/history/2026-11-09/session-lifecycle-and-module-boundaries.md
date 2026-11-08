@@ -76,3 +76,10 @@ bootstrap, without writing through an old project symlink into the owner's runti
 Repeating setup exposed cargo-shear's different version-output label and an existing-binary
 update failure. Exact version tokens now handle that format, and mismatched tools are replaced
 inside the project without following external symlinks.
+
+The delivery review also found that release assembly still depended on individual agent
+commands. Follow-up #24 makes the full Linux check retain its qualified packet and makes
+main publication consume the successful dev/native/security artifacts of that exact commit.
+Browser acceptance now records measured results separately from build facts. The publisher
+reconciles immutable tags and draft assets and downloads uploaded bytes before publication.
+Browser loading, store submission and contour-side deployment remain their existing owners.

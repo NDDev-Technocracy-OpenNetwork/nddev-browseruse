@@ -1,0 +1,183 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Read publication requirements
+        run: cargo run --locked --package nddev-browseruse-tools -- release-requirements
+      - name: Retrieve exact verified dev artifacts
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const requirements = JSON.parse(fs.readFileSync('.tools/release-requirements.json', 'utf8'));
+            if (requirements.source !== context.sha) throw new Error('Source mismatch');
+            const input = path.join(process.env.RUNNER_TEMP, 'release-input');
+            fs.mkdirSync(input);
+            const evidence = {source: context.sha, runs: {}, artifacts: {}};
+            for (const workflow of requirements.workflows) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                ...context.repo, workflow_id: workflow.file,
+                head_sha: context.sha, branch: 'dev', event: 'push', per_page: 20
+              });
+              const run = response.data.workflow_runs.find(item => item.head_sha === context.sha);
+              if (!run || run.status !== 'completed' || run.conclusion !== 'success') {
+                throw new Error(`Expected completed successful dev run: ${workflow.file}`);
+              }
+              const jobResponse = await github.rest.actions.listJobsForWorkflowRun({
+                ...context.repo, run_id: run.id, per_page: 100
+              });
+              if (jobResponse.data.total_count > 100) throw new Error('Job count exceeds its bound');
+              const jobs = jobResponse.data.jobs;
+              evidence.runs[workflow.key] = {
+                id: run.id, html_url: run.html_url, head_sha: run.head_sha,
+                head_branch: run.head_branch, event: run.event, conclusion: run.conclusion,
+                jobs: jobs.map(({name, conclusion}) => ({name, conclusion}))
+              };
+              if (!workflow.jobs.every(name => jobs.some(job => job.name === name && job.conclusion === 'success'))) {
+                throw new Error('Expected job did not succeed');
+              }
+              if (!workflow.artifacts.length) continue;
+              const artifactResponse = await github.rest.actions.listWorkflowRunArtifacts({
+                ...context.repo, run_id: run.id, per_page: 100
+              });
+              if (artifactResponse.data.total_count > 100) throw new Error('Artifact count exceeds its bound');
+              const artifacts = artifactResponse.data.artifacts;
+              for (const needed of workflow.artifacts) {
+                const artifact = artifacts.find(item => item.name === needed.name);
+                if (!artifact || artifact.expired || artifact.size_in_bytes > 268435456) {
+                  throw new Error('Expected bounded artifact is unavailable');
+                }
+                const download = await github.rest.actions.downloadArtifact({
+                  ...context.repo, artifact_id: artifact.id, archive_format: 'zip'
+                });
+                fs.writeFileSync(path.join(input, `${needed.key}.zip`), Buffer.from(download.data));
+                evidence.artifacts[needed.key] = {
+                  id: artifact.id, name: artifact.name, digest: artifact.digest,
+                  workflow_run_id: run.id, expired: artifact.expired
+                };
+              }
+            }
+            fs.writeFileSync(path.join(input, 'evidence.json'), JSON.stringify(evidence));
+      - name: Assemble the tested packets without an application rebuild
+        run: cargo run --locked --package nddev-browseruse-tools -- release-assemble "$RUNNER_TEMP/release-input" "$RUNNER_TEMP/release-output"
+      - name: Reconcile draft, verify uploaded bytes and publish
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const crypto = require('node:crypto');
+            const input = path.join(process.env.RUNNER_TEMP, 'release-input');
+            const plan = JSON.parse(fs.readFileSync(path.join(input, 'publication.json'), 'utf8'));
+            if (plan.source !== context.sha) throw new Error('Publication source mismatch');
+            const optional = async operation => {
+              try { return await operation(); }
+              catch (error) { if (error.status === 404) return null; throw error; }
+            };
+            let tag = await optional(() => github.rest.git.getRef({...context.repo, ref: `tags/${plan.tag}`}));
+            if (tag) {
+              let object = tag.data.object;
+              for (let depth = 0; object.type === 'tag' && depth < 4; depth++) {
+                object = (await github.rest.git.getTag({...context.repo, tag_sha: object.sha})).data.object;
+              }
+              if (object.type !== 'commit' || object.sha !== plan.source) throw new Error('Immutable tag conflict');
+            } else {
+              await github.rest.git.createRef({...context.repo, ref: `refs/tags/${plan.tag}`, sha: plan.source});
+            }
+            let release = await optional(() => github.rest.repos.getReleaseByTag({...context.repo, tag: plan.tag}));
+            if (!release) {
+              const generated = await github.rest.repos.generateReleaseNotes({
+                ...context.repo, tag_name: plan.tag, target_commitish: plan.source
+              });
+              release = await github.rest.repos.createRelease({
+                ...context.repo, tag_name: plan.tag, target_commitish: plan.source, draft: true,
+                name: `nddev-browseruse ${plan.version}`,
+                body: fs.readFileSync(path.join(input, 'release-notes.md'), 'utf8') + '\n' + generated.data.body
+              });
+            }
+            const allowed = new Set(plan.assets.map(asset => asset.name));
+            if (release.data.assets.some(asset => !allowed.has(asset.name))) throw new Error('Unexpected existing release asset');
+            for (const asset of plan.assets) {
+              const bytes = fs.readFileSync(path.join(plan.directory, asset.name));
+              if (bytes.length !== asset.size || crypto.createHash('sha256').update(bytes).digest('hex') !== asset.sha256) {
+                throw new Error('Local publication asset changed');
+              }
+              const existing = release.data.assets.find(item => item.name === asset.name);
+              if (existing && existing.size === asset.size && existing.digest === `sha256:${asset.sha256}`) continue;
+              if (!release.data.draft) throw new Error('Published asset conflict; never overwrite a published release');
+              if (existing) await github.rest.repos.deleteReleaseAsset({...context.repo, asset_id: existing.id});
+              await github.rest.repos.uploadReleaseAsset({
+                ...context.repo, release_id: release.data.id, name: asset.name, data: bytes,
+                headers: {'content-type': asset.name.endsWith('.json') ? 'application/json' : 'application/octet-stream'}
+              });
+            }
+            const current = (await github.rest.repos.getReleaseByTag({...context.repo, tag: plan.tag})).data;
+            if (current.assets.length !== plan.assets.length) throw new Error('Incomplete release');
+            for (const asset of plan.assets) {
+              const remote = current.assets.find(item => item.name === asset.name);
+              if (!remote || remote.size !== asset.size) throw new Error('Published asset size mismatch');
+              const response = await fetch(`${context.apiUrl}/repos/${context.repo.owner}/${context.repo.repo}/releases/assets/${remote.id}`, {
+                headers: {
+                  accept: 'application/octet-stream',
+                  authorization: `Bearer ${core.getInput('github-token', {required: true})}`
+                },
+                signal: AbortSignal.timeout(60000)
+              });
+              if (!response.ok || !response.body) throw new Error('Release asset download failed');
+              let size = 0;
+              const hash = crypto.createHash('sha256');
+              for await (const chunk of response.body) {
+                size += chunk.length;
+                if (size > asset.size) throw new Error('Release asset exceeds its expected size');
+                hash.update(chunk);
+              }
+              if (size !== asset.size || hash.digest('hex') !== asset.sha256) {
+                throw new Error('Downloaded release asset differs');
+              }
+            }
+            if (current.draft) await github.rest.repos.updateRelease({...context.repo, release_id: current.id, draft: false});
+            core.notice(`Verified release ${plan.tag}: ${current.html_url}`);
+      - name: Preserve publication failure
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        with:
+          script: |
+            const title = `Release publication failed at ${context.sha}`;
+            const issues = [];
+            for (let page = 1; page <= 5; page++) {
+              const response = await github.rest.issues.listForRepo({
+                ...context.repo, state: 'all', sort: 'updated', direction: 'desc', per_page: 100, page
+              });
+              issues.push(...response.data);
+              if (response.data.length < 100) break;
+            }
+            const existing = issues.find(issue => issue.title === title);
+            const body = `Downloadable release publication failed for ${context.sha}. Inspect ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}. No tag may be moved and no published asset may be overwritten. Reconcile the existing draft before retrying. Refs #24.`;
+            if (existing) {
+              if (existing.state !== 'open') await github.rest.issues.update({...context.repo, issue_number: existing.number, state: 'open'});
+            } else {
+              await github.rest.issues.create({...context.repo, title, body});
+            }
