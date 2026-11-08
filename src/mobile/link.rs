@@ -10,7 +10,11 @@
 //! they opened; the owner's other tabs are never attached. The owner's switch is the link
 //! itself: it runs while the owner runs `nds-browser-use phone serve`.
 
-use super::adb;
+use super::{
+    adb,
+    queue::{Outbox, Packet, Terminal},
+};
+use crate::{CancellationToken, configuration::PhoneLimits};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::{
@@ -19,11 +23,12 @@ use std::{
         Arc, Mutex, MutexGuard,
         atomic::{AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    sync::{mpsc, oneshot},
+    sync::{Semaphore, mpsc, oneshot, watch},
+    task::JoinSet,
 };
 use tokio_tungstenite::{
     WebSocketStream,
@@ -36,7 +41,6 @@ const MESSAGE_LIMIT: usize = 64 * 1_048_576;
 const HOST_LIMIT: usize = 2 * 1_048_576;
 /// The host reads at most 32 MiB per message and ends on a larger one.
 const TO_HOST_LIMIT: usize = 32 * 1_048_576;
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// Agent tabs of all groups together, and the child sessions of all tabs.
 const MAX_TABS: usize = 256;
 const MAX_CHILDREN: usize = 4096;
@@ -160,6 +164,13 @@ pub enum Ended {
     Host,
     /// The owner stopped the link.
     Stopped,
+    /// A queue, pending-call map or background work budget was exhausted.
+    Capacity,
+    Transport,
+    Protocol,
+    InvalidConfiguration,
+    BrowserWriteTimeout,
+    HostWriteTimeout,
 }
 
 /// Serves the host over one browser connection until either side ends.
@@ -169,39 +180,115 @@ pub async fn run<S, H>(
     observation: &str,
     notices: Option<Notices>,
     host: H,
+    limits: PhoneLimits,
     stop: impl Future<Output = ()>,
 ) -> Ended
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     H: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    if !limits.validate() {
+        return Ended::InvalidConfiguration;
+    }
+    let (terminal, mut failed) = watch::channel(None);
+    let terminal = Terminal(terminal);
     let (mut sink, mut source) = socket.split();
-    let (to_browser, mut browser_queue) = mpsc::unbounded_channel::<String>();
-    let (to_host, mut host_queue) = mpsc::unbounded_channel::<Vec<u8>>();
+    let (to_browser, mut browser_queue) = Outbox::<String>::new(
+        limits.queue_messages,
+        limits.browser_queue_bytes,
+        terminal.clone(),
+    );
+    let (to_host, mut host_queue) = Outbox::<Vec<u8>>::new(
+        limits.queue_messages,
+        limits.host_queue_bytes,
+        terminal.clone(),
+    );
     let (mut host_read, mut host_write) = tokio::io::split(host);
+    let timeout = Duration::from_millis(limits.write_timeout_ms);
+    let writer_terminal = terminal.clone();
     let browser_writer = tokio::spawn(async move {
-        while let Some(text) = browser_queue.recv().await {
-            if sink.send(Message::text(text)).await.is_err() {
-                break;
+        while let Some(packet) = browser_queue.recv().await {
+            match tokio::time::timeout(timeout, sink.send(Message::text(packet.value))).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    writer_terminal.fail(Ended::Browser);
+                    break;
+                }
+                Err(_) => {
+                    writer_terminal.fail(Ended::BrowserWriteTimeout);
+                    break;
+                }
             }
+            drop(packet.charge);
         }
-        let _ = sink.close().await;
     });
-    // Frames are read whole in their own task: a read interrupted by a browser message would
-    // lose its place in the stream.
-    let (frames_in, mut frames) = mpsc::channel::<Value>(256);
+    // Keep the serialized byte lease through queuing AND asynchronous request handling.
+    let incoming = Arc::new(Semaphore::new(limits.incoming_bytes as usize));
+    let (frames_in, mut frames) = mpsc::channel(limits.incoming_messages);
+    let reader_terminal = terminal.clone();
     let host_reader = tokio::spawn(async move {
-        while let Some(message) = read_frame(&mut host_read).await {
-            if frames_in.send(message).await.is_err() {
+        loop {
+            let mut length = [0u8; 4];
+            match host_read.read(&mut length[..1]).await {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(_) => {
+                    reader_terminal.fail(Ended::Transport);
+                    break;
+                }
+            }
+            if host_read.read_exact(&mut length[1..]).await.is_err() {
+                reader_terminal.fail(Ended::Protocol);
+                break;
+            }
+            let length = u32::from_ne_bytes(length);
+            if length as usize > HOST_LIMIT {
+                reader_terminal.fail(Ended::Protocol);
+                break;
+            }
+            let Ok(charge) = incoming.clone().acquire_many_owned(length.max(1)).await else {
+                break;
+            };
+            let mut body = vec![0; length as usize];
+            if host_read.read_exact(&mut body).await.is_err() {
+                reader_terminal.fail(Ended::Protocol);
+                break;
+            }
+            let Ok(value) = serde_json::from_slice(&body) else {
+                reader_terminal.fail(Ended::Protocol);
+                break;
+            };
+            if frames_in
+                .send(Packet {
+                    value,
+                    charge: Arc::new(charge),
+                })
+                .await
+                .is_err()
+            {
                 break;
             }
         }
     });
+    let writer_terminal = terminal.clone();
     let host_writer = tokio::spawn(async move {
-        while let Some(frame) = host_queue.recv().await {
-            if host_write.write_all(&frame).await.is_err() || host_write.flush().await.is_err() {
-                break;
+        while let Some(packet) = host_queue.recv().await {
+            let write = async {
+                host_write.write_all(&packet.value).await?;
+                host_write.flush().await
+            };
+            match tokio::time::timeout(timeout, write).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {
+                    writer_terminal.fail(Ended::Transport);
+                    break;
+                }
+                Err(_) => {
+                    writer_terminal.fail(Ended::HostWriteTimeout);
+                    break;
+                }
             }
+            drop(packet.charge);
         }
     });
     let link = Arc::new(Link {
@@ -210,48 +297,70 @@ where
         notices,
         next_call: AtomicU64::new(1),
         state: Mutex::default(),
+        terminal,
+        stop: CancellationToken::new(),
+        work: Arc::new(Semaphore::new(limits.background_work)),
+        tasks: Mutex::new(JoinSet::new()),
+        limits,
     });
-    // Popups of agent tabs are adopted from the browser's target reports.
+    let _lifetime = Lifetime {
+        link: link.clone(),
+        io: [
+            host_reader.abort_handle(),
+            browser_writer.abort_handle(),
+            host_writer.abort_handle(),
+        ],
+    };
     link.quiet(
         None,
         "Target.setDiscoverTargets",
         json!({ "discover": true }),
     );
     link.report(json!({
-        "type": "hello",
-        "protocol": "1.3",
-        "version": env!("CARGO_PKG_VERSION"),
-        "contract": 2,
-        "userAgent": browser.user_agent,
-        "enabled": true,
-        // The phone keeps downloads in its own storage; the executor fetches the file again.
-        "downloads": false,
-        "observation": observation,
+        "type": "hello", "protocol": "1.3", "version": env!("CARGO_PKG_VERSION"), "contract": 2,
+        "userAgent": browser.user_agent, "enabled": true, "downloads": false, "observation": observation,
     }));
     let mut stop = std::pin::pin!(stop);
+    // Expiry scans have a bounded map; their cadence derives from the connection's deadline.
+    let mut expiry =
+        tokio::time::interval(Duration::from_millis(link.limits.call_timeout_ms.min(1000)));
     let ended = loop {
+        if let Some(reason) = *failed.borrow() {
+            break reason;
+        }
         tokio::select! {
+            () = &mut stop => break Ended::Stopped,
+            result = failed.changed() => { if result.is_err() { break Ended::Transport; } },
+            _ = expiry.tick() => link.expire(),
             message = source.next() => match message {
                 Some(Ok(Message::Text(text))) => link.on_browser(text.as_str()),
-                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {}
+                Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => {},
+                Some(Err(tokio_tungstenite::tungstenite::Error::Protocol(tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHandshake))) => break Ended::Browser,
+                Some(Err(tokio_tungstenite::tungstenite::Error::Capacity(_) | tokio_tungstenite::tungstenite::Error::Protocol(_) | tokio_tungstenite::tungstenite::Error::Utf8(_))) => break Ended::Protocol,
                 _ => break Ended::Browser,
             },
             frame = frames.recv() => match frame {
                 Some(message) => link.on_host(message),
                 None => break Ended::Host,
             },
-            () = &mut stop => break Ended::Stopped,
         }
     };
-    // Ending both directions closes the host's side, which then shuts down in order.
+    link.stop.cancel();
+    link.work.close();
+    // No late operation may outlive the connection. An already sent action remains uncertain.
+    let mut tasks =
+        std::mem::take(&mut *link.tasks.lock().unwrap_or_else(|error| error.into_inner()));
+    tasks.abort_all();
+    while tasks.join_next().await.is_some() {}
     host_reader.abort();
     browser_writer.abort();
     host_writer.abort();
-    // Waiting tasks learn that the browser is gone.
+    let _ = tokio::join!(host_reader, browser_writer, host_writer);
     link.state().calls.clear();
     ended
 }
 
+#[cfg(test)]
 async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Option<Value> {
     let mut length = [0u8; 4];
     reader.read_exact(&mut length).await.ok()?;
@@ -265,16 +374,54 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Option<Value> {
 }
 
 struct Link {
-    browser: mpsc::UnboundedSender<String>,
-    host: mpsc::UnboundedSender<Vec<u8>>,
+    browser: Outbox<String>,
+    host: Outbox<Vec<u8>>,
+    limits: PhoneLimits,
+    terminal: Terminal,
+    stop: CancellationToken,
+    work: Arc<Semaphore>,
+    tasks: Mutex<JoinSet<()>>,
     notices: Option<Notices>,
     next_call: AtomicU64,
     state: Mutex<State>,
 }
 
+// Dropping/aborting the public run future must not detach its I/O tasks or leave a cycle
+// through background work. The normal return additionally joins every task before its reply.
+struct Lifetime {
+    link: Arc<Link>,
+    io: [tokio::task::AbortHandle; 3],
+}
+
+impl Drop for Lifetime {
+    fn drop(&mut self) {
+        self.link.stop.cancel();
+        self.link.work.close();
+        self.link
+            .tasks
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .abort_all();
+        for task in &self.io {
+            task.abort();
+        }
+        self.link.state().calls.clear();
+    }
+}
+
+struct CallLease<'a> {
+    link: &'a Link,
+    id: u64,
+}
+impl Drop for CallLease<'_> {
+    fn drop(&mut self) {
+        self.link.state().calls.remove(&self.id);
+    }
+}
+
 #[derive(Default)]
 struct State {
-    calls: HashMap<u64, Call>,
+    calls: HashMap<u64, Pending>,
     next_tab: i64,
     tabs: HashMap<i64, Tab>,
     sessions: HashMap<String, Owner>,
@@ -302,6 +449,11 @@ impl Owner {
             Self::Root(tab) | Self::Child(tab) => tab,
         }
     }
+}
+
+struct Pending {
+    call: Call,
+    deadline: Instant,
 }
 
 /// Who receives the browser's answer to one command.
@@ -346,7 +498,8 @@ impl Link {
         let mut framed = Vec::with_capacity(body.len() + 4);
         framed.extend_from_slice(&(body.len() as u32).to_ne_bytes());
         framed.extend_from_slice(&body);
-        self.host.send(framed).is_ok()
+        let length = framed.len();
+        self.host.send(framed, length)
     }
 
     fn answer(&self, id: u64, answer: Answer) {
@@ -372,7 +525,55 @@ impl Link {
         }
     }
 
-    /// Sends one command; commands sent in sequence reach the browser in that order.
+    fn spawn(&self, work: impl Future<Output = ()> + Send + 'static) {
+        let mut tasks = self.tasks.lock().unwrap_or_else(|error| error.into_inner());
+        if self.stop.is_cancelled() || self.terminal.ended() {
+            return;
+        }
+        while let Some(result) = tasks.try_join_next() {
+            if result.is_err() {
+                self.terminal.fail(Ended::Transport);
+                return;
+            }
+        }
+        let Ok(permit) = self.work.clone().try_acquire_owned() else {
+            self.terminal.fail(Ended::Capacity);
+            return;
+        };
+        let stop = self.stop.clone();
+        tasks.spawn(async move {
+            let _permit = permit;
+            tokio::select! { biased; () = stop.cancelled() => {}, () = work => {} }
+        });
+    }
+
+    fn expire(&self) {
+        let expired = {
+            let mut state = self.state();
+            let now = Instant::now();
+            let ids: Vec<_> = state
+                .calls
+                .iter()
+                .filter(|(_, pending)| pending.deadline <= now)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|id| state.calls.remove(&id))
+                .collect::<Vec<_>>()
+        };
+        for pending in expired {
+            let timeout = json!({ "code": -32000, "message": "The browser did not answer; the action may already have happened" });
+            match pending.call {
+                Call::Host(id) => self.answer(id, Answer::Cdp(timeout)),
+                Call::Task(send) => {
+                    let _ = send.send(Err(timeout));
+                }
+                Call::Quiet => {}
+            }
+        }
+    }
+
+    /// Commands sent in sequence reach the browser in that order. The map is bounded and expires.
     fn command(
         &self,
         state: &mut State,
@@ -380,21 +581,37 @@ impl Link {
         method: &str,
         params: Value,
         call: Call,
-    ) {
+    ) -> Option<u64> {
+        if self.stop.is_cancelled() || self.terminal.ended() {
+            return None;
+        }
+        if state.calls.len() >= self.limits.pending_calls {
+            self.terminal.fail(Ended::Capacity);
+            return None;
+        }
         let id = self.next_call.fetch_add(1, Ordering::Relaxed);
         let mut message = json!({ "id": id, "method": method, "params": params });
         if let Some(session) = session {
             message["sessionId"] = session.into();
         }
-        state.calls.insert(id, call);
-        if self.browser.send(message.to_string()).is_err() {
+        let message = message.to_string();
+        let length = message.len();
+        state.calls.insert(
+            id,
+            Pending {
+                call,
+                deadline: Instant::now() + Duration::from_millis(self.limits.call_timeout_ms),
+            },
+        );
+        if !self.browser.send(message, length) {
             state.calls.remove(&id);
+            return None;
         }
+        Some(id)
     }
 
     fn quiet(&self, session: Option<&str>, method: &str, params: Value) {
-        let mut state = self.state();
-        self.command(&mut state, session, method, params, Call::Quiet);
+        self.command(&mut self.state(), session, method, params, Call::Quiet);
     }
 
     async fn call(
@@ -404,27 +621,35 @@ impl Link {
         params: Value,
     ) -> Result<Value, Value> {
         let (send, receive) = oneshot::channel();
+        let id = self.command(&mut self.state(), session, method, params, Call::Task(send));
+        let Some(id) = id else {
+            return Err(json!({ "code": -32000, "message": "Browser link ended" }));
+        };
+        let _pending = CallLease { link: self, id };
+        match tokio::time::timeout(Duration::from_millis(self.limits.call_timeout_ms), receive)
+            .await
         {
-            let mut state = self.state();
-            self.command(&mut state, session, method, params, Call::Task(send));
-        }
-        match tokio::time::timeout(CALL_TIMEOUT, receive).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => Err(json!({ "code": -32000, "message": "Target closed" })),
-            Err(_) => Err(json!({ "code": -32000, "message": "The browser did not answer" })),
+            Err(_) => Err(
+                json!({ "code": -32000, "message": "The browser did not answer; the action may already have happened" }),
+            ),
         }
     }
 
-    fn on_host(self: &Arc<Self>, message: Value) {
+    fn on_host(self: &Arc<Self>, packet: Packet<Value>) {
+        let message = packet.value;
+        let charge = packet.charge;
         let Some(id) = message["id"].as_u64() else {
             // `reload` names no id: a phone link is never reloaded from disk.
             return;
         };
         match message["type"].as_str() {
-            Some("cdp") => self.cdp(id, &message),
+            Some("cdp") => self.cdp(id, &message, charge),
             Some("claim" | "release" | "open" | "close" | "tabs") => {
                 let link = self.clone();
-                tokio::spawn(async move {
+                self.spawn(async move {
+                    let _charge = charge;
                     let answer = link.request(&message).await;
                     link.answer(id, answer);
                 });
@@ -469,7 +694,12 @@ impl Link {
 
     /// A CDP command for a held tab, or one of its child sessions. It is sent right here, so the
     /// host's commands reach the browser in the order the host sent them.
-    fn cdp(self: &Arc<Self>, id: u64, message: &Value) {
+    fn cdp(
+        self: &Arc<Self>,
+        id: u64,
+        message: &Value,
+        charge: Arc<tokio::sync::OwnedSemaphorePermit>,
+    ) {
         let tab = message["tab"].as_i64().unwrap_or(-1);
         let group = message["group"].as_str().unwrap_or_default();
         let method = message["method"].as_str().unwrap_or_default();
@@ -496,7 +726,8 @@ impl Link {
                 let link = self.clone();
                 let group = group.to_owned();
                 let notify = method == "NDS.notifyOwner";
-                tokio::spawn(async move {
+                self.spawn(async move {
+                    let _charge = charge;
                     let answer = if notify {
                         link.notify_owner(tab, &group, &params).await
                     } else {
@@ -520,7 +751,9 @@ impl Link {
             }
             // Screenshots are browser frames, not document edits. In particular the phone
             // bridge must not inject inline styles that violate the page's CSP.
-            _ => self.command(&mut state, Some(&session), method, params, Call::Host(id)),
+            _ => {
+                self.command(&mut state, Some(&session), method, params, Call::Host(id));
+            }
         }
     }
 
@@ -733,6 +966,7 @@ impl Link {
 
     fn on_browser(self: &Arc<Self>, text: &str) {
         let Ok(message) = serde_json::from_str::<Value>(text) else {
+            self.terminal.fail(Ended::Protocol);
             return;
         };
         if let Some(id) = message["id"].as_u64() {
@@ -743,7 +977,7 @@ impl Link {
                 Some(error) => Err(error.clone()),
                 None => Ok(message.get("result").cloned().unwrap_or_else(|| json!({}))),
             };
-            match (call, result) {
+            match (call.call, result) {
                 (Call::Host(host), Ok(result)) => self.answer(host, Answer::Done(result)),
                 (Call::Host(host), Err(error)) => self.answer(host, Answer::Cdp(error)),
                 (Call::Quiet, _) => {}
@@ -787,7 +1021,9 @@ impl Link {
         if owner == Owner::Child(tab) {
             event["session"] = session.into();
         }
-        self.report(event);
+        if !self.report(event) {
+            self.terminal.fail(Ended::Capacity);
+        }
     }
 
     /// The browser's own target reports: a held tab's session or target ended, or an agent tab
@@ -825,7 +1061,7 @@ impl Link {
                 drop(state);
                 if let Some(tag) = notice {
                     let link = self.clone();
-                    tokio::spawn(async move { link.cancel_notice(&tag).await });
+                    self.spawn(async move { link.cancel_notice(&tag).await });
                 }
                 if held {
                     self.report(
@@ -862,7 +1098,7 @@ impl Link {
                 };
                 let tab = self.add_tab(&group, target);
                 let link = self.clone();
-                tokio::spawn(async move {
+                self.spawn(async move {
                     if let Ok(target) = link.attach(tab).await {
                         link.report(json!({ "type": "attached", "tab": tab, "group": group, "target": target }));
                     } else if link.state().tabs.contains_key(&tab) {
@@ -1049,6 +1285,130 @@ mod tests {
         }
     }
 
+    fn limits() -> PhoneLimits {
+        PhoneLimits {
+            queue_messages: 128,
+            browser_queue_bytes: 8 * 1_048_576,
+            host_queue_bytes: 64 * 1_048_576,
+            incoming_bytes: 8 * 1_048_576,
+            incoming_messages: 64,
+            pending_calls: 256,
+            background_work: 32,
+            call_timeout_ms: 30_000,
+            write_timeout_ms: 30_000,
+        }
+    }
+
+    type Bare = (
+        Arc<Link>,
+        mpsc::Receiver<Packet<String>>,
+        mpsc::Receiver<Packet<Vec<u8>>>,
+        watch::Receiver<Option<Ended>>,
+    );
+
+    fn bare(limits: PhoneLimits) -> Bare {
+        let (sender, receiver) = watch::channel(None);
+        let terminal = Terminal(sender);
+        let (browser, browser_queue) = Outbox::new(
+            limits.queue_messages,
+            limits.browser_queue_bytes,
+            terminal.clone(),
+        );
+        let (host, host_queue) = Outbox::new(
+            limits.queue_messages,
+            limits.host_queue_bytes,
+            terminal.clone(),
+        );
+        (
+            Arc::new(Link {
+                browser,
+                host,
+                terminal,
+                stop: CancellationToken::new(),
+                work: Arc::new(Semaphore::new(limits.background_work)),
+                tasks: Mutex::new(JoinSet::new()),
+                limits,
+                notices: None,
+                next_call: AtomicU64::new(1),
+                state: Mutex::default(),
+            }),
+            browser_queue,
+            host_queue,
+            receiver,
+        )
+    }
+
+    #[tokio::test]
+    async fn pending_commands_have_a_shared_limit_and_expiry_replies() {
+        let mut configured = limits();
+        configured.pending_calls = 2;
+        let (link, _browser, mut host, terminal) = bare(configured);
+        link.command(
+            &mut link.state(),
+            None,
+            "Fixture.command",
+            json!({}),
+            Call::Host(77),
+        );
+        link.command(
+            &mut link.state(),
+            None,
+            "Fixture.command",
+            json!({}),
+            Call::Quiet,
+        );
+        for pending in link.state().calls.values_mut() {
+            pending.deadline = Instant::now();
+        }
+        link.expire();
+        assert!(link.state().calls.is_empty());
+        let packet = host.recv().await.unwrap();
+        let reply: Value = serde_json::from_slice(&packet.value[4..]).unwrap();
+        assert_eq!(reply["id"], 77);
+        assert_eq!(reply["error"]["code"], "cdp_error");
+        for _ in 0..3 {
+            link.quiet(None, "Fixture.command", json!({}));
+        }
+        assert_eq!(link.state().calls.len(), 2);
+        assert_eq!(*terminal.borrow(), Some(Ended::Capacity));
+    }
+
+    #[tokio::test]
+    async fn cancelled_and_timed_out_tasks_remove_their_pending_call() {
+        let mut configured = limits();
+        configured.call_timeout_ms = 100;
+        let (link, mut browser, _host, _terminal) = bare(configured);
+        let running = link.clone();
+        let call =
+            tokio::spawn(async move { running.call(None, "Fixture.command", json!({})).await });
+        let _packet = browser.recv().await.unwrap();
+        call.abort();
+        let _ = call.await;
+        assert!(link.state().calls.is_empty());
+        assert!(link.call(None, "Fixture.command", json!({})).await.is_err());
+        assert!(link.state().calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn exhausted_background_work_is_terminal_and_never_starts_the_rejected_task() {
+        let mut configured = limits();
+        configured.background_work = 1;
+        let (link, _browser, _host, terminal) = bare(configured);
+        link.spawn(std::future::pending());
+        let rejected = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = rejected.clone();
+        link.spawn(async move {
+            flag.store(true, Ordering::SeqCst);
+        });
+        assert_eq!(*terminal.borrow(), Some(Ended::Capacity));
+        assert_eq!(link.tasks.lock().unwrap().len(), 1);
+        tokio::task::yield_now().await;
+        assert!(!rejected.load(Ordering::SeqCst));
+        link.stop.cancel();
+        let mut tasks = std::mem::take(&mut *link.tasks.lock().unwrap());
+        while tasks.join_next().await.is_some() {}
+    }
+
     async fn linked() -> (Fake, Host, tokio::task::JoinHandle<Ended>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -1087,6 +1447,7 @@ mod tests {
                 "full",
                 None,
                 link_side,
+                limits(),
                 std::future::pending(),
             )
             .await
@@ -1100,6 +1461,20 @@ mod tests {
             },
             link,
         )
+    }
+
+    #[tokio::test]
+    async fn aborting_the_link_closes_its_io_even_with_a_pending_background_operation() {
+        let (mut browser, mut host, link) = linked().await;
+        host.receive().await;
+        host.send(json!({ "type": "open", "group": "fixture", "url": "about:blank" }))
+            .await;
+        browser.next("Target.createTarget").await;
+        // The browser deliberately does not answer. Its task owns a pending call and the link.
+        link.abort();
+        let _ = link.await;
+        let ended = tokio::time::timeout(Duration::from_secs(2), host.read.read_u8()).await;
+        assert!(ended.unwrap().is_err());
     }
 
     #[tokio::test]

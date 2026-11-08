@@ -19,6 +19,8 @@ pub mod artifact;
 #[cfg(any(unix, windows))]
 mod cancellation;
 #[cfg(any(unix, windows))]
+pub mod configuration;
+#[cfg(any(unix, windows))]
 pub mod device;
 #[cfg(any(unix, windows))]
 pub mod diagnostics;

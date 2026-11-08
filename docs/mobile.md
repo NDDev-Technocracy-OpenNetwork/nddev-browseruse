@@ -149,3 +149,41 @@ Chrome itself has not been checked on a phone yet.
 
 Phone screenshots capture the rendered browser frame without injecting cosmetic
 styles into the document. The page's caret and scrollbars can remain visible.
+
+## Connection budgets and shutdown
+
+`install` delivers `common.toml` and `profile.toml` beside the existing `host.json`.
+The private `[phone_link]` section is declared and validated in
+`crates/contract/src/phone.rs`; it is omitted from the extension's public settings.
+Reinstalling preserves valid operator edits and can complete an interrupted initial
+file delivery. Missing, unknown, duplicated or out-of-range values fail closed.
+
+One browser connection shares its budgets across all agent sessions:
+
+| Resource | Delivered budget |
+| --- | --- |
+| Each outgoing message queue | 128 messages |
+| Browser-bound bytes, including an active write | 8 MiB |
+| Host-bound bytes, including an active write | 64 MiB |
+| Queued and executing native request bytes | 8 MiB |
+| Queued native request messages | 64 |
+| Pending browser commands, including quiet setup | 256 |
+| Background operations, including adoption and notices | 32 |
+| One browser call / one transport write | 30 seconds |
+
+These are deployment values in `config/common.toml`, with validated upper bounds.
+A connection fixes its settings; the next connection reads the installed files again.
+The incoming reader applies backpressure before allocating a complete message.
+An outgoing packet retains its byte lease until its write finishes. A pending
+command releases its slot on reply, cancellation or expiry; no timed-out entry is
+left in the map. Background work is counted, canceled and joined on normal close.
+Dropping the public run future also aborts its I/O tasks rather than detaching them.
+
+Capacity, malformed-frame, transport and write-timeout failures are terminal and
+produce a nonzero CLI outcome, including with observation Off. The CLI does not
+replay an uncertain action. A browser that closes its transport without a WebSocket
+close handshake still follows the normal browser-restart path; malformed or
+oversized frames do not.
+
+Developers can run `just phone-check` on a build host for the isolated ADB/browser
+fixtures; `just verify` includes the same cases in complete browser acceptance.

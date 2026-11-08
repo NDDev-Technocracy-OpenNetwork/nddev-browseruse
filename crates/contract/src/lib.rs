@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
+mod phone;
+pub use phone::PhoneLimits;
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Observation {
@@ -66,6 +69,7 @@ pub struct FrontendConfig {
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub public: FrontendConfig,
+    pub phone_link: PhoneLimits,
 }
 
 impl Settings {
@@ -94,7 +98,8 @@ impl Settings {
             .try_into()
             .map_err(|_| "missing, unknown or mistyped setting")?;
         let public = &settings.public;
-        if public.minimum_host.split('.').count() != 3
+        if !settings.phone_link.validate()
+            || public.minimum_host.split('.').count() != 3
             || !public
                 .minimum_host
                 .split('.')
@@ -192,6 +197,16 @@ partsBytes = 4096
 guideUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/guide"
 privacyUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/privacy"
 installUrl = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/install"
+[phone_link]
+queueMessages = 8
+browserQueueBytes = 2097152
+hostQueueBytes = 33554436
+incomingBytes = 2097152
+incomingMessages = 8
+pendingCalls = 8
+backgroundWork = 8
+callTimeoutMs = 1000
+writeTimeoutMs = 1000
 "#;
 
     #[test]

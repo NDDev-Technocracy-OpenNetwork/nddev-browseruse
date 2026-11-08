@@ -94,7 +94,7 @@ fn execute() -> Result {
             build.env("BROWSERUSE_SOURCE_COMMIT", source_commit()?);
             complete(build)
         }
-        "browser-check" => {
+        "browser-check" | "phone-check" => {
             generate()?;
             run(
                 "cargo",
@@ -102,7 +102,11 @@ fn execute() -> Result {
             )?;
             let target = target_directory()?;
             let mut browser = Command::new(tool("bun"));
-            browser.args(["run", "e2e"]);
+            if command == "phone-check" {
+                browser.args(["test", "e2e/phone.test.ts", "--timeout", "60000"]);
+            } else {
+                browser.args(["run", "e2e"]);
+            }
             if let Some(pattern) = std::env::args().nth(2) {
                 browser.args(["--test-name-pattern", &pattern]);
             }
