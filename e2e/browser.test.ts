@@ -1156,6 +1156,7 @@ test("a strict mode violation lists every match so the agent can pick one", asyn
       "strict",
       `const page = await context.newPage();
        await page.setContent('<div role="dialog"><button>From</button><button>Send</button><button>Discard</button></div>');
+       await page.waitForFunction(() => document.querySelectorAll('[role="dialog"] button').length === 3, null, { timeout: 5000 });
        try { await page.locator("[role=dialog] button").click({ timeout: 1000 }); return "clicked"; }
        finally { await page.close(); }`,
     );
