@@ -13,7 +13,7 @@ const profile = mkdtempSync(join(tmpdir(), "nddev-store-render-"));
 const browser = await launchFixture(profile, {
   executablePath: plan.chrome,
   headless: true,
-  viewport: null,
+  viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 1,
 });
 try {
