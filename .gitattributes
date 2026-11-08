@@ -5,6 +5,8 @@ packages/desktop/extension/background.js linguist-generated
 packages/desktop/extension/popup.js linguist-generated
 
 packages/desktop/extension/restore.js linguist-generated
+packages/desktop/extension/legal.js linguist-generated
+packages/desktop/extension/licenses/*.html -whitespace linguist-generated
 packages/desktop/extension/generated/** linguist-generated
 packages/desktop/extension/src/generated/** linguist-generated
 packages/desktop/extension/styles/fonts.css linguist-generated
@@ -16,3 +18,5 @@ contracts/openapi.json linguist-generated
 
 packages/executor/generated/** linguist-generated
 packages/executor/settings.json linguist-generated
+# Retain exact upstream parser/notice bytes on every build host.
+tools/codegen/vendor/js-yaml/** -text -whitespace linguist-vendored

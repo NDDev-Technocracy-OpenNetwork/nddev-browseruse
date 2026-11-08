@@ -235,5 +235,17 @@
   },
   "ageUnit": {
     "message": "{v1, number}{v2, select, second {s} minute {m} hour {h} day {d} other {}}"
+  },
+  "licenses": {
+    "message": "Licenses"
+  },
+  "licensesPageTitle": {
+    "message": "Licenses and notices"
+  },
+  "licensesPageDescription": {
+    "message": "Original notices for the extension components. Native-host and executor notices are included in their installation packet."
+  },
+  "sourceLink": {
+    "message": "Source code"
   }
 }

@@ -14,6 +14,7 @@ type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
 mod configuration;
 mod design;
+mod legal;
 mod licenses;
 mod native_licenses;
 mod store;
@@ -40,6 +41,7 @@ fn execute() -> Result {
         "check" => {
             design::check()?;
             configuration::check()?;
+            legal::check()?;
             check_version()?;
             run("cargo", &["fmt", "--all", "--", "--check"])?;
             run(tool("cargo-shear"), &[])?;
@@ -438,7 +440,8 @@ fn generate() -> Result {
     let mut encoded = serde_json::to_vec_pretty(&manifest)?;
     encoded.push(b'\n');
     fs::write(path, encoded)?;
-    emit_browser("packages/desktop/extension")
+    emit_browser("packages/desktop/extension")?;
+    legal::generate()
 }
 
 fn emit_browser(output: &str) -> Result {

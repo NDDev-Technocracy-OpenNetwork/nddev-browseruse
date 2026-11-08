@@ -235,5 +235,17 @@
   },
   "ageUnit": {
     "message": "{v1, number} {v2, select, second {с} minute {мин} hour {сағ} day {күн} other {}}"
+  },
+  "licenses": {
+    "message": "Лицензиялар"
+  },
+  "licensesPageTitle": {
+    "message": "Лицензиялар мен ескертулер"
+  },
+  "licensesPageDescription": {
+    "message": "Кеңейтім компоненттерінің түпнұсқа ескертулері. Нативті хост пен орындаушының лицензиялары олардың орнату пакетінде бар."
+  },
+  "sourceLink": {
+    "message": "Бастапқы код"
   }
 }

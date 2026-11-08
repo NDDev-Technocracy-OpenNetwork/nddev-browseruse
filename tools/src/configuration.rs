@@ -14,6 +14,7 @@ fn settings(profile: &str) -> Result<Settings> {
 }
 
 pub(super) fn check() -> Result {
+    check_yaml_library()?;
     settings("dev")?;
     let settings = settings("production")?;
     if fs::read(SCHEMA)? != schema()?
@@ -24,6 +25,67 @@ pub(super) fn check() -> Result {
             "generated public configuration or schema drift; run just generate on a build host"
                 .into(),
         );
+    }
+    Ok(())
+}
+
+fn check_yaml_library() -> Result {
+    use sha2::{Digest, Sha256};
+    let root = Path::new("tools/codegen/vendor/js-yaml");
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("UPSTREAM.json"))?)?;
+    let mut expected = receipt["originalManifest"].clone();
+    let manifest = expected
+        .as_object_mut()
+        .ok_or("missing upstream YAML manifest")?;
+    if manifest["name"] != "js-yaml"
+        || manifest["version"] != "4.3.2"
+        || manifest["license"] != "MIT"
+    {
+        return Err("unexpected build-only YAML source".into());
+    }
+    for name in ["bin", "dependencies", "devDependencies", "scripts"] {
+        manifest.remove(name);
+    }
+    manifest
+        .get_mut("files")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or("missing upstream YAML file list")?
+        .retain(|file| file != "bin/");
+    manifest.insert("private".into(), true.into());
+    let actual: serde_json::Value = serde_json::from_slice(&fs::read(root.join("package.json"))?)?;
+    if actual != expected {
+        return Err("library-only YAML manifest drift".into());
+    }
+    let files = receipt["files"]
+        .as_object()
+        .ok_or("missing YAML source digests")?;
+    if files.len() > 64 {
+        return Err("YAML source file count exceeds its bound".into());
+    }
+    for (name, digest) in files {
+        let path = Path::new(name);
+        if !path
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err("invalid YAML source path".into());
+        }
+        let path = root.join(path);
+        let metadata = fs::symlink_metadata(&path)?;
+        if !metadata.is_file() || metadata.len() > 1_048_576 {
+            return Err("invalid YAML source file".into());
+        }
+        let hash: String = Sha256::digest(fs::read(path)?)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        if digest.as_str() != Some(&hash) {
+            return Err(format!("upstream YAML file changed: {name}").into());
+        }
+    }
+    if fs::read_to_string("tools/codegen/bun.lock")?.contains("\"argparse\"") {
+        return Err("the unused YAML CLI dependency returned to the build graph".into());
     }
     Ok(())
 }

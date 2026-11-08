@@ -72,6 +72,8 @@ async function loadLanguage(): Promise<void> {
     ? "dark"
     : "light";
   document.title = t("title");
+  const legal = element<HTMLAnchorElement>("licenses-link");
+  if (legal) legal.href = chrome.runtime.getURL(`licenses/${language}.html`);
   for (const node of document.querySelectorAll<HTMLElement>("[data-i18n]")) {
     node.textContent = t(node.dataset.i18n ?? "");
   }

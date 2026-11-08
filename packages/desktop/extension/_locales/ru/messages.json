@@ -235,5 +235,17 @@
   },
   "ageUnit": {
     "message": "{v1, number} {v2, select, second {с} minute {мин} hour {ч} day {д} other {}}"
+  },
+  "licenses": {
+    "message": "Лицензии"
+  },
+  "licensesPageTitle": {
+    "message": "Лицензии и уведомления"
+  },
+  "licensesPageDescription": {
+    "message": "Оригинальные уведомления компонентов расширения. Лицензии нативного хоста и исполнителя включены в их установочный пакет."
+  },
+  "sourceLink": {
+    "message": "Исходный код"
   }
 }

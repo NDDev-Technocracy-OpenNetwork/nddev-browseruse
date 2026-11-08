@@ -235,5 +235,17 @@
   },
   "ageUnit": {
     "message": "{v1, number}{v2, select, second {秒} minute {分} hour {时} day {天} other {}}"
+  },
+  "licenses": {
+    "message": "许可证"
+  },
+  "licensesPageTitle": {
+    "message": "许可证和声明"
+  },
+  "licensesPageDescription": {
+    "message": "扩展组件的原始声明。本机主机程序和执行器的声明包含在其安装包中。"
+  },
+  "sourceLink": {
+    "message": "源代码"
   }
 }
