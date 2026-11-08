@@ -5,7 +5,7 @@ on:
     branches: [dev, main]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
-    branches: [dev, main]
+    branches: [dev]
   workflow_dispatch:
 
 permissions: {}

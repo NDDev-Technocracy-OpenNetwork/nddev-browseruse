@@ -35,8 +35,18 @@ import { clearAllLogs, getLatestLogs, notified, attach as watchLogs } from "./ag
 import { recorderFor } from "./agent/recorder";
 import { createDemoVideo, executing, ghostCursor, recording } from "./agent/recording";
 import { resizeImageForAgent, screenshotWithAccessibilityLabels } from "./agent/screens";
+import { executorSettings } from "./agent/settings";
 import { ref, refToLocator, snapshot, attach as watchSnapshots } from "./agent/snapshot";
-import { bindEmitter, bindPage, definer, type Execution, scope, withdraw } from "./execution";
+import { ExecutionSteps } from "./agent/steps";
+import {
+  bindEmitter,
+  bindPage,
+  definer,
+  type Execution,
+  scope,
+  withdraw,
+  withStep,
+} from "./execution";
 
 const LOG_LIMIT = 200;
 
@@ -66,14 +76,24 @@ if (!emitter) process.exit(3);
 bindEmitter(emitter);
 bindPage(Object.getPrototypeOf(context));
 
+const stepOwners = new WeakMap<object, ExecutionSteps>();
+
 // Playwright calls of an aborted script, and of the callbacks it registered, throw before they
 // reach the browser (ADR 0015).
 (
   browser as unknown as { _instrumentation: { addListener(listener: object): void } }
 )._instrumentation.addListener({
-  onApiCallBegin: () => {
-    if (scope.getStore()?.signal.aborted)
-      throw new Error("This execution timed out and was aborted");
+  onApiCallBegin: (zone: object) => {
+    const execution = scope.getStore();
+    if (execution?.signal.aborted) throw new Error("This execution timed out and was aborted");
+    if (execution?.steps) {
+      execution.steps.begin(zone, (zone as { apiName?: unknown }).apiName);
+      stepOwners.set(zone, execution.steps);
+    }
+  },
+  onApiCallEnd: (zone: object) => {
+    stepOwners.get(zone)?.end(zone);
+    stepOwners.delete(zone);
   },
 });
 (
@@ -152,7 +172,8 @@ const sandbox = vm.createContext({
   refToLocator,
   getLatestLogs,
   clearAllLogs,
-  waitForPageLoad,
+  waitForPageLoad: (options: Parameters<typeof waitForPageLoad>[0]) =>
+    withStep("waitForPageLoad", () => waitForPageLoad(options)),
   inspect: describe,
   getCleanHTML,
   getPageMarkdown,
@@ -255,6 +276,7 @@ async function run(request: Request): Promise<void> {
     signal: controller.signal,
     logs: [],
     withdraw: [],
+    steps: new ExecutionSteps(executorSettings.execution),
   };
   const budget = request.timeout_ms ?? 10_000;
   let answered = false;
@@ -270,6 +292,7 @@ async function run(request: Request): Promise<void> {
   }): void => {
     if (answered) return;
     answered = true;
+    execution.steps?.close();
     void journalExecution({
       id: request.id,
       code: request.code,
@@ -285,10 +308,12 @@ async function run(request: Request): Promise<void> {
   running = {
     id: request.id,
     abort: () => {
+      const steps = execution.steps?.describe();
       controller.abort();
       withdraw(execution);
       const error =
-        "Code execution reached its deadline and was aborted: its later Playwright calls throw, its listeners, routes and locator handlers are removed, and `signal` is aborted. An action already in progress may still complete, so check the page before retrying. The session keeps its state.";
+        "Code execution reached its deadline and was aborted: its later Playwright calls throw, its listeners, routes and locator handlers are removed, and `signal` is aborted. An action already in progress may still complete, so check the page before retrying. The session keeps its state." +
+        (steps ? `\n${steps}` : "");
       const text = compose({ notices: notified(), console: execution.logs, error });
       answer({ id: request.id, ok: false, error: "aborted", ...bounded(text) });
     },

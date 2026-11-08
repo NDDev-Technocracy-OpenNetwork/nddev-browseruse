@@ -101,6 +101,23 @@ fn execute() -> Result {
             let profile = std::env::args().nth(3).unwrap_or_else(|| "release".into());
             stage(Path::new(&output), &profile)
         }
+        "verify-staged" => {
+            let output = std::env::args()
+                .nth(2)
+                .ok_or("verify-staged requires an absolute new native directory")?;
+            let output = Path::new(&output);
+            stage(output, "release")?;
+            let mut browser = Command::new(tool("bun"));
+            browser.args(["run", "e2e"]);
+            browser.env(
+                "NDS_TEST_HOST",
+                output.join("bin").join(executable("nddev-browseruse")),
+            );
+            browser.env("NDS_TEST_EXTENSION", output.join("extension"));
+            browser.env("NDS_TEST_EXECUTOR", output.join("executor/executor.ts"));
+            browser_environment(&mut browser)?;
+            complete(browser)
+        }
         "build" => {
             generate()?;
             let mut build = Command::new("cargo");
@@ -130,20 +147,7 @@ fn execute() -> Result {
             if let Some(pattern) = std::env::args().nth(2) {
                 browser.args(["--test-name-pattern", &pattern]);
             }
-            let chrome = test_browser()?;
-            if cfg!(target_os = "linux")
-                && std::env::var_os("NDS_TEST_CHROME").is_none()
-                && std::env::var_os("CHROME_DEVEL_SANDBOX").is_none()
-            {
-                browser.env(
-                    "CHROME_DEVEL_SANDBOX",
-                    chrome
-                        .parent()
-                        .ok_or("invalid browser executable")?
-                        .join("chrome_sandbox"),
-                );
-            }
-            browser.env("NDS_TEST_CHROME", chrome);
+            browser_environment(&mut browser)?;
             browser.env(
                 "NDS_TEST_HOST",
                 target.join("debug").join(executable("nddev-browseruse")),
@@ -152,6 +156,24 @@ fn execute() -> Result {
         }
         _ => Err("unknown project command".into()),
     }
+}
+
+fn browser_environment(browser: &mut Command) -> Result {
+    let chrome = test_browser()?;
+    if cfg!(target_os = "linux")
+        && std::env::var_os("NDS_TEST_CHROME").is_none()
+        && std::env::var_os("CHROME_DEVEL_SANDBOX").is_none()
+    {
+        browser.env(
+            "CHROME_DEVEL_SANDBOX",
+            chrome
+                .parent()
+                .ok_or("invalid browser executable")?
+                .join("chrome_sandbox"),
+        );
+    }
+    browser.env("NDS_TEST_CHROME", chrome);
+    Ok(())
 }
 
 fn executable(name: &str) -> String {
@@ -417,13 +439,13 @@ fn stage(output: &Path, profile: &str) -> Result {
         serde_json::to_vec_pretty(&serde_json::json!({
             "product": "nddev-browseruse", "version": compiled.version, "source": compiled.commit,
             "executorRuntime": runtime,
-            "profile": profile, "qualified": false, "nativeHostRegistered": false
+            "profile": profile, "qualification": "recorded in the release receipt", "nativeHostRegistered": false
         }))?,
     )?;
     fs::write(
         output.join("INSTALL.txt"),
         format!(
-            "Candidate only. Review CANDIDATE.json and bin/nddev-browseruse --version. Complete existing agent sessions before changing the installation.\nLoading extension/ as an unpacked extension is the owner's action. Native-host registration is separate: run bin/nddev-browseruse install with the absolute installed {runtime} path, this directory's executor/executor.ts path and the chosen --browser.\nBun is an external prerequisite; its binary is not redistributed here. The bundled agent skill is under skills/nddev-browseruse; it does not replace global skills automatically.\nThe source NOTICE refers to packages/executor and packages/desktop/extension; this distribution maps them to executor and extension. Rust license texts are in licenses/rust and licenses/rust-toolchain; npm and DS/font notices accompany their packages.\nStaging does not change a browser profile, settings or native-host registration.\n"
+            "Build packet. Compare CANDIDATE.json and bin/nddev-browseruse --version with the release qualification receipt. Complete existing agent sessions before changing the installation.\nLoading extension/ as an unpacked extension is the owner's action. Native-host registration is separate: run bin/nddev-browseruse install with the absolute installed {runtime} path, this directory's executor/executor.ts path and the chosen --browser.\nBun is an external prerequisite; its binary is not redistributed here. The bundled agent skill is under skills/nddev-browseruse; it does not replace global skills automatically.\nThe source NOTICE refers to packages/executor and packages/desktop/extension; this distribution maps them to executor and extension. Rust license texts are in licenses/rust and licenses/rust-toolchain; npm and DS/font notices accompany their packages.\nStaging does not change a browser profile, settings or native-host registration.\n"
         ),
     )?;
     fs::remove_file(output.join("INCOMPLETE.txt"))?;

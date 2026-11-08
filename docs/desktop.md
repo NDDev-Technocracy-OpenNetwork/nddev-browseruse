@@ -37,16 +37,11 @@ inside the tab groups that the owner grants them. Phones are described in [mobil
 | `edge`, `edge-beta`, `edge-dev` | Microsoft Edge and its channels |
 | `brave` | Brave |
 
-Other Chromium browsers can use `--host-dir <their NativeMessagingHosts folder>`, but two are
-known not to work:
-- **Vivaldi:** its stable version gives extensions no tab groups. The agent groups depend on
-  them.
-- **Opera:** it turns tab groups into its own tab islands.
+Other Chromium browsers can use `--host-dir <their NativeMessagingHosts folder>`.
+Registration support does not qualify a browser: it must expose compatible debugger,
+tab-group and native-messaging APIs. Firefox has no implementation in this product.
 
-## Candidate validation
-
-The standalone install and store packets are being qualified. Do not replace a
-working owner-browser installation with the extraction worktree.
+## Build and validation
 
 On a build host, run `just setup`, then `just verify`. Setup builds the Rust
 project helper and installs pinned dependencies. Check is read-only and offline;
@@ -59,8 +54,41 @@ Chromium's sandbox remains enabled. The isolated Linux SUID sandbox helper
 requires permission to set its owner and mode; failure stops the check.
 No owner profile or native-host registration is used for acceptance.
 
+`just verify-staged /absolute/new/native-packet` runs the checks, builds the release
+host, stages its executor/dependencies/extension and runs acceptance against those
+exact files. Native macOS/Windows CI uploads that tested directory. A new output
+directory is required; an existing packet is never overwritten.
+
+## Install
+
+Keep the downloaded native packet in a stable directory. Use the Bun version pinned
+by `packageManager` in its `package.json`, installed separately for the same platform.
+The packet does not install Bun globally. Video additionally needs ffmpeg on PATH.
+
+Check the build, then register the host for the browser you use:
+
+```sh
+/absolute/native-packet/bin/nddev-browseruse --version
+/absolute/native-packet/bin/nddev-browseruse install --browser chrome --bun /absolute/bun --executor /absolute/native-packet/executor/executor.ts
+```
+
+Use `chrome-beta` for Chrome Beta. Windows uses `bin/nddev-browseruse.exe`.
+Compare the source/version with the release's qualification evidence. GitHub artifact
+ZIPs normalize Unix executable permissions; after extracting a macOS/Linux packet,
+restore `chmod +x bin/nddev-browseruse` if the executable bit is absent.
+
+Load the matching unpacked extension or install its store build, open the popup and
+choose Full, Standard or Off. An update that requires renewed disclosure stays paused
+until that choice. `Update needed` means the native host and extension need a compatible
+pair; replacing only the extension does not replace the host. Close existing browser-use
+sessions before changing the host, then reconnect it without restarting the browser.
+Never stop another task's native host while its sessions are active.
+
+Run the CLI by its absolute path, or put its `bin` directory on PATH. `status` must
+report `enabled: true` before a task starts. The public skill is included under
+`skills/nddev-browseruse`; registration does not change global skills.
+
 The native host can register one browser through `nddev-browseruse install`.
-The candidate staging workflow will supply its absolute Bun and executor paths.
 Loading the unpacked candidate and uploading a store ZIP are the owner's steps.
 The Chrome Web Store build uses the same source with the development key omitted.
 Edge's assigned store ID must also be admitted and tested before its release.
@@ -83,6 +111,10 @@ and `--adb-server`. Use an empty string to clear runtime/device/phone overrides;
 valid endpoint. This command edits common-source fields; manually edit the profile if it owns
 the native values instead. OS `HOME`/XDG/LOCALAPPDATA locations
 remain platform conventions; application values no longer come from environment variables.
+
+Reinstallation adds a newly introduced execution-budget section only when neither installed
+source declares it. Defaults come from the compiled common configuration; all prior operator
+values stay. An explicitly malformed or incomplete section is rejected instead of replaced.
 
 Migrate `NDS_BROWSER_USE_RUNTIME_DIR`, `NDS_BROWSER_DEVICE`, `NDS_BROWSER_PHONE` to these fields
 and clear the old variables. A nonempty old setting refuses an operation with
@@ -158,9 +190,9 @@ Store packaging runs on Linux with the system `zip` and `unzip` tools. It sorts
 entries, fixes timestamps/modes and omits ZIP extra fields. Chrome and Edge ZIPs
 have identical engine bytes and omit the unpacked public key; `unpacked/` retains
 that key and its existing ID. SHA256SUMS and source/DS metadata accompany them.
-A partial directory retains INCOMPLETE.txt. A completed packet still has
-`qualified: false` until its acceptance evidence, store copy and owner-browser
-checks are complete. Edge's future assigned extension ID needs explicit native
+A partial directory retains INCOMPLETE.txt. Build metadata records source and
+destinations; qualification is recorded separately in the release receipt after
+the acceptance and visual checks. Edge's future assigned extension ID needs explicit native
 admission and browser acceptance before its listing can become operational.
 
 `just store-materials /absolute/isolated-captures /absolute/new/materials` prepares

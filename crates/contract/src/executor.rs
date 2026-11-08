@@ -5,8 +5,19 @@ use utoipa::ToSchema;
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ExecutorSettings {
+    pub execution: ExecutionSettings,
     pub activity: ActivitySettings,
     pub recorder: RecorderSettings,
+}
+
+/// Operational deadline context, independent of retained observation data.
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExecutionSettings {
+    pub pending_steps: usize,
+    pub recent_steps: usize,
+    /// Optional live tab metadata must leave room for the client's execution reply.
+    pub snapshot_timeout_ms: u64,
 }
 
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -48,7 +59,10 @@ impl ExecutorSettings {
     pub fn validate(&self) -> bool {
         let a = &self.activity;
         let r = &self.recorder;
-        (1..=256).contains(&a.batch_records)
+        (1..=32).contains(&self.execution.pending_steps)
+            && (1..=16).contains(&self.execution.recent_steps)
+            && (100..=1000).contains(&self.execution.snapshot_timeout_ms)
+            && (1..=256).contains(&a.batch_records)
             && (1024..=921_600).contains(&a.batch_bytes)
             && (a.batch_records..=4096).contains(&a.queue_records)
             && (a.batch_bytes..=16_777_216).contains(&a.queue_bytes)

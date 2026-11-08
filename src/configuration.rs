@@ -156,9 +156,35 @@ fn configure_in(directory: &Path, values: &NativeOverrides) -> Result<(), IoErro
     } else {
         include_str!("../config/production.toml").into()
     };
-    Settings::parse(&original, &profile).map_err(|_| IoError::InvalidConfiguration)?;
     let mut common: toml::Value =
         toml::from_str(&original).map_err(|_| IoError::InvalidConfiguration)?;
+    let selected: toml::Value =
+        toml::from_str(&profile).map_err(|_| IoError::InvalidConfiguration)?;
+    let has_execution = |source: &toml::Value| {
+        source
+            .get("executor")
+            .and_then(|value| value.get("execution"))
+            .is_some()
+    };
+    // This newly introduced section gets the declared defaults once. Existing operator values
+    // and malformed sections are never replaced; validate the whole composition before writing.
+    let migrated = !has_execution(&common) && !has_execution(&selected);
+    if migrated {
+        let defaults: toml::Value = toml::from_str(include_str!("../config/common.toml"))
+            .map_err(|_| IoError::InvalidConfiguration)?;
+        let defaults = defaults
+            .get("executor")
+            .and_then(|value| value.get("execution"))
+            .ok_or(IoError::InvalidConfiguration)?
+            .clone();
+        let table = common.as_table_mut().ok_or(IoError::InvalidConfiguration)?;
+        table
+            .entry("executor")
+            .or_insert_with(|| toml::Value::Table(Default::default()))
+            .as_table_mut()
+            .ok_or(IoError::InvalidConfiguration)?
+            .insert("execution".into(), defaults);
+    }
     for (name, value) in [
         ("runtimeDirectory", &values.runtime_directory),
         ("defaultDevice", &values.default_device),
@@ -180,14 +206,14 @@ fn configure_in(directory: &Path, values: &NativeOverrides) -> Result<(), IoErro
             .ok_or(IoError::InvalidConfiguration)?
             .insert("server".into(), value.clone().into());
     }
-    let encoded = if values.is_empty() {
+    let encoded = if values.is_empty() && !migrated {
         original
     } else {
         toml::to_string_pretty(&common).map_err(|_| IoError::InvalidConfiguration)?
     };
     Settings::parse(&encoded, &profile).map_err(|_| IoError::InvalidConfiguration)?;
     crate::runtime::private_tree(directory)?;
-    if !has_common || !values.is_empty() {
+    if !has_common || !values.is_empty() || migrated {
         crate::install::write_private(&common_path, encoded.as_bytes())?;
     }
     if !has_profile {
@@ -282,6 +308,35 @@ mod tests {
         );
         assert_eq!(file(&common).unwrap(), "[phone_link]\nqueueMessages=0");
         assert!(!directory.path().join("profile.toml").exists());
+    }
+
+    #[test]
+    fn introducing_execution_budgets_preserves_older_operator_values() {
+        let directory = private_fixture();
+        let mut old: toml::Value = toml::from_str(include_str!("../config/common.toml")).unwrap();
+        old["executor"].as_table_mut().unwrap().remove("execution");
+        old["executor"]["recorder"]["frameIntervalMs"] = 1500.into();
+        old["native"]["defaultDevice"] = "pc".into();
+        std::fs::write(
+            directory.path().join("common.toml"),
+            toml::to_string(&old).unwrap(),
+        )
+        .unwrap();
+        configure_in(directory.path(), &Default::default()).unwrap();
+        let settings = read(directory.path()).unwrap();
+        assert_eq!(settings.native.default_device, "pc");
+        assert_eq!(settings.executor.recorder.frame_interval_ms, 1500);
+        let declared = Settings::parse(include_str!("../config/common.toml"), "").unwrap();
+        assert_eq!(
+            settings.executor.execution.pending_steps,
+            declared.executor.execution.pending_steps
+        );
+        let delivered = file(&directory.path().join("common.toml")).unwrap();
+        configure_in(directory.path(), &Default::default()).unwrap();
+        assert_eq!(
+            file(&directory.path().join("common.toml")).unwrap(),
+            delivered
+        );
     }
 
     #[test]

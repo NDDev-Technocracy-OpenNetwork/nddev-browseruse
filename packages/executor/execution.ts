@@ -9,17 +9,31 @@
 // The execution's own state is kept, and so are callbacks of executions that ended normally.
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Console } from "./agent/format";
+import type { ExecutionSteps } from "./agent/steps";
 
 export type Execution = {
   /** Stable operation identity for callbacks that outlive the script's result. */
   id?: number;
   signal: AbortSignal;
   logs: Console[];
+  steps?: ExecutionSteps;
   /** What undoes the execution's registrations, run once it is aborted. */
   withdraw: Array<() => unknown>;
 };
 
 export const scope = new AsyncLocalStorage<Execution>();
+
+/** Names a helper independently of the browser calls it makes. */
+export async function withStep<T>(name: string, work: () => Promise<T>): Promise<T> {
+  const steps = scope.getStore()?.steps;
+  const key = {};
+  steps?.begin(key, name);
+  try {
+    return await work();
+  } finally {
+    steps?.end(key);
+  }
+}
 
 type Callback = (this: unknown, ...args: unknown[]) => unknown;
 type Method = (this: object, ...args: unknown[]) => unknown;

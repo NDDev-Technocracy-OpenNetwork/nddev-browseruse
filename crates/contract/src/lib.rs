@@ -6,7 +6,7 @@ use utoipa::{OpenApi, ToSchema};
 mod phone;
 pub use phone::PhoneLimits;
 mod executor;
-pub use executor::{ActivitySettings, ExecutorSettings, RecorderSettings};
+pub use executor::{ActivitySettings, ExecutionSettings, ExecutorSettings, RecorderSettings};
 mod capture;
 pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
 mod native;
@@ -225,6 +225,10 @@ pendingCalls = 8
 backgroundWork = 8
 callTimeoutMs = 1000
 writeTimeoutMs = 1000
+[executor.execution]
+pendingSteps = 16
+recentSteps = 8
+snapshotTimeoutMs = 1000
 [executor.activity]
 batchRecords = 4
 batchBytes = 4096
@@ -269,6 +273,9 @@ shellBytes = 1048576
     #[test]
     fn wrong_units_bounds_and_external_public_addresses_are_rejected() {
         for (before, after) in [
+            ("pendingSteps = 16", "pendingSteps = 33"),
+            ("recentSteps = 8", "recentSteps = 0"),
+            ("snapshotTimeoutMs = 1000", "snapshotTimeoutMs = 2000"),
             ("refreshMs = 500", "refreshMs = 0"),
             ("consentRevision = 1", "consentRevision = 0"),
             ("batchEvents = 16", "batchEvents = 50000"),

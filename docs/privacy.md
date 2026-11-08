@@ -1,7 +1,7 @@
 # Privacy policy: nddev-browseruse
 
 This policy covers the nddev-browseruse Chromium extension and its local host.
-The standalone extraction is a release candidate under qualification.
+Qualification and platform limits accompany each published standalone build.
 [Русская версия ниже](#политика-конфиденциальности-nddev-browseruse).
 
 ## Browser access

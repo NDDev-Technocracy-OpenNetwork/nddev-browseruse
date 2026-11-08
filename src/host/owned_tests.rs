@@ -10,6 +10,11 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
     let host = Arc::new(Host {
         config: Config {
             executor_settings: crate::configuration::ExecutorSettings {
+                execution: nddev_browseruse_contract::ExecutionSettings {
+                    pending_steps: 16,
+                    recent_steps: 8,
+                    snapshot_timeout_ms: 1000,
+                },
                 activity: crate::configuration::ActivitySettings {
                     batch_records: 4,
                     batch_bytes: 4096,

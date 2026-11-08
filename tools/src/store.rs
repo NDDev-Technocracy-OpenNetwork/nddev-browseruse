@@ -114,7 +114,7 @@ fn assemble(root: &Path, output: &Path, version: &str, commit: &str, design: &Va
         &output.join("STORE-TARGETS.json"),
         &json!({
             "format": 1, "product": "nddev-browseruse", "version": version, "source": commit,
-            "qualified": false, "readyForUpload": false, "nativeHostRegistered": false,
+            "qualification": "recorded in the release receipt", "uploaded": false, "nativeHostRegistered": false,
             "unpacked": { "directory": "unpacked", "extensionId": unpacked_id, "keyPreserved": true },
             "chrome": { "operation": "update-existing", "itemId": CHROME_ITEM, "zip": chrome, "sha256": digest },
             "edge": { "operation": "create-future-listing", "itemId": null, "zip": edge, "sha256": digest,
@@ -124,7 +124,7 @@ fn assemble(root: &Path, output: &Path, version: &str, commit: &str, design: &Va
     )?;
     fs::write(
         output.join("READ-ME.ru.txt"),
-        "Пакеты подготовлены из указанного коммита. STORE-TARGETS.json остаётся qualified=false до приёмки.\nChrome: обновить существующую карточку; ZIP не содержит ключ unpacked-установки.\nEdge: пакет для будущей новой карточки; после назначения runtime extension ID потребуется допуск в native host и проверка Edge.\nUnpacked сохраняет прежний публичный ключ и ID. Обновление host до совместимой версии обязательно.\nНичего не зарегистрировано в браузере и не опубликовано. Отдельно приложите проверенный native-пакет, листинги, изображения и ответы проверки приватности.\n",
+        "Пакеты подготовлены из указанного коммита. STORE-TARGETS.json фиксирует исходник и назначения; приёмка записана отдельно в release receipt.\nChrome: обновить существующую карточку; ZIP не содержит ключ unpacked-установки.\nEdge: пакет для будущей новой карточки; после назначения runtime extension ID потребуется допуск в native host и проверка Edge.\nUnpacked сохраняет прежний публичный ключ и ID. Обновление host до совместимой версии обязательно.\nНичего не зарегистрировано в браузере и не опубликовано. Отдельно приложите проверенный native-пакет, листинги, изображения и ответы проверки приватности.\n",
     )?;
     fs::remove_dir_all(store)?;
     fs::remove_file(output.join("INCOMPLETE.txt"))?;

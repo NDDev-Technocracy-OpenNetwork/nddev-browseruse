@@ -88,6 +88,7 @@ let origin: string;
 let requests = 0;
 const served = { once: 0 };
 let delayedResponse: (() => void) | undefined;
+let finishDeadlineNavigation: (() => void) | undefined;
 function releaseDelayedResponse(): void {
   delayedResponse?.();
 }
@@ -246,6 +247,16 @@ beforeAll(async () => {
     fetch(request) {
       requests += 1;
       const path = new URL(request.url).pathname;
+      if (path === "/deadline-navigation") {
+        return new Promise<Response>((resolve) => {
+          finishDeadlineNavigation = () =>
+            resolve(
+              new Response("<!doctype html><title>Released</title><h1>Released</h1>", {
+                headers: { "content-type": "text/html" },
+              }),
+            );
+        });
+      }
       if (path === "/api/revocation") {
         return new Promise<Response>((resolve) => {
           delayedResponse = () => resolve(Response.json({ note: "revoked-body-fixture" }));
@@ -1851,6 +1862,41 @@ test("raw CDP sessions reach agent tabs, including a virtual authenticator", asy
   expect(result.body.value).toBe("NotAllowedError signed-in 1 event");
 });
 
+test("detaching raw browser CDP sessions releases their children and capacity", async () => {
+  await opened("raw-detach");
+  try {
+    const result = await run(
+      "raw-detach",
+      `const page = await context.newPage(); await page.goto("${origin}/");
+       let detachedChildren = 0;
+       for (let index = 0; index < 70; index++) {
+         const root = await browser.newBrowserCDPSession();
+         const version = await root.send("Browser.getVersion");
+         if (!version.product.startsWith("Chrome/")) throw new Error("raw browser session unavailable");
+         const { targetInfos } = await root.send("Target.getTargets");
+         const owned = targetInfos.filter(target => target.type === "page");
+         if (owned.length !== 1) throw new Error("expected one owned target");
+         const [target] = owned;
+         const { sessionId } = await root.send("Target.attachToTarget", { targetId: target.targetId, flatten: true });
+         const nested = await root.send("Target.attachToBrowserTarget");
+         root.on("Target.detachedFromTarget", event => { if (event.sessionId === sessionId || event.sessionId === nested.sessionId) detachedChildren++; });
+         await root.detach();
+         let refused = false;
+         try { await root.send("Browser.getVersion"); }
+         catch { refused = true; }
+         if (!refused) throw new Error("closed browser session accepted a command");
+       }
+       return [detachedChildren, await page.title(), page.isClosed()].join(" ")`,
+      "--timeout",
+      "20000",
+    );
+    expect(result.body).toMatchObject({ failure: null, value: "140 Fixture false" });
+    expect(result.code).toBe(0);
+  } finally {
+    await cli("session", "close", "raw-detach");
+  }
+});
+
 test("a raw CDP session that enables Runtime learns the page's contexts", async () => {
   // Playwright enabled Runtime on the tab first; a later session must still be told the contexts.
   await opened("runtime");
@@ -2807,6 +2853,65 @@ test("a device's CLI runs a session's code there and hands its artifacts back", 
     await cli("--device", "self", "session", "close", "device");
     rmSync(devices, { force: true });
     rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test("an execution deadline names completed and running browser steps without arguments", async () => {
+  await opened("deadline-steps");
+  try {
+    const ready = await run(
+      "deadline-steps",
+      `state.page = await context.newPage(); await state.page.goto("${origin}/"); return await state.page.title()`,
+    );
+    expect(ready.body.value).toBe("Fixture");
+    const result = await run(
+      "deadline-steps",
+      `await state.page.title(); await waitForPageLoad({page:state.page,timeout:200,minWait:0}); await state.page.goto("${origin}/deadline-navigation?token=synthetic-secret", { timeout:0, waitUntil:"domcontentloaded" })`,
+      "--timeout",
+      "1000",
+    );
+    expect(result.body).toMatchObject({ failure: "aborted" });
+    expect(tabs(result)[0]?.document).toBeNull();
+    const output = String(result.body.output);
+    const steps = output.split("\n").find((line) => line.startsWith("Execution steps:"));
+    expect(steps).toMatch(/\btitle \d+ ms/);
+    expect(steps).toContain("waitForPageLoad");
+    expect(steps).toMatch(/running \[goto \d+ ms/);
+    expect(steps).not.toContain(origin);
+    expect(steps).not.toContain("synthetic-secret");
+    expect(output).toContain("may still complete");
+    finishDeadlineNavigation?.();
+    const resumed = await run(
+      "deadline-steps",
+      "await state.page.getByRole('heading', {name:'Released'}).waitFor(); return await state.page.title()",
+    );
+    expect(resumed.body.value).toBe("Released");
+    const started = Date.now();
+    const submitted = await run(
+      "deadline-steps",
+      `void state.page.goto("${origin}/deadline-navigation?token=another-synthetic-secret", {timeout:0}).catch(()=>{}); return "submitted"`,
+      "--timeout",
+      "2000",
+    );
+    expect(submitted.body).toMatchObject({ failure: null, value: "submitted" });
+    expect(Date.now() - started).toBeLessThan(5000);
+    // A fire-and-forget navigation can leave the preceding document current until commit.
+    const metadata = tabs(submitted)[0];
+    expect(metadata).toBeDefined();
+    if (metadata?.document) {
+      expect(metadata.document.length).toBeGreaterThan(0);
+      expect(metadata.url).toBe(`${origin}/deadline-navigation?token=synthetic-secret`);
+      expect(submitted.body.tabs).toEqual(
+        expect.arrayContaining([expect.objectContaining({ title: "Released" })]),
+      );
+    } else {
+      expect(metadata?.url).toBe("");
+    }
+    finishDeadlineNavigation?.();
+  } finally {
+    finishDeadlineNavigation?.();
+    finishDeadlineNavigation = undefined;
+    await cli("session", "close", "deadline-steps");
   }
 });
 

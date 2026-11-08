@@ -28,6 +28,10 @@ test:
 # Runs the complete validation, including isolated real-browser acceptance.
 verify: check test build browser-check
 
+# Tests the exact staged release host, executor and extension on a build host.
+verify-staged output: check test build
+    {{ tools }} verify-staged {{ quote(output) }}
+
 # Builds the release host and generated browser code.
 build:
     {{ tools }} build

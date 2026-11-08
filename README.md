@@ -4,10 +4,12 @@ Local browser automation for agents you run. A Rust host and CLI connect a thin
 Bun executor to a Chromium extension through native messaging and local sockets.
 Each task works inside its own tab group in your existing browser.
 
-**Extraction candidate, not a release.** Work is being separated from
-[NDS browser-use](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use)
-with its public history preserved. Existing native host, extension and local data
-identities remain compatible. See [the extraction work](docs/extraction.md).
+The standalone product preserves the public history of
+[NDS browser-use](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use).
+Existing native host, extension and local data identities remain compatible.
+Download the native packet and extension from [Releases](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/releases),
+then follow [installation](docs/desktop.md#install). Chrome is qualified; the Edge
+packet awaits its assigned catalog ID and actual Edge acceptance.
 
 ```sh
 nddev-browseruse skill
