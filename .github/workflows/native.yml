@@ -45,3 +45,4 @@ jobs:
           name: native-${{ matrix.os }}
           path: ${{ runner.temp }}/nddev-browseruse-native
           if-no-files-found: error
+          include-hidden-files: true
