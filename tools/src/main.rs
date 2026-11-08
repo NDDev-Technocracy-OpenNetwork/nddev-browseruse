@@ -15,6 +15,8 @@ type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 mod configuration;
 mod design;
 mod licenses;
+mod native_licenses;
+mod store;
 
 fn main() -> ExitCode {
     match execute() {
@@ -74,6 +76,12 @@ fn execute() -> Result {
         "generate" => generate(),
         "vendor-design" => design::vendor(),
         "contracts" => configuration::generate(),
+        "package-store" => {
+            let output = std::env::args()
+                .nth(2)
+                .ok_or("package-store requires an absolute new output directory")?;
+            store::package(Path::new(&output))
+        }
         "stage" => {
             let output = std::env::args()
                 .nth(2)
@@ -325,24 +333,52 @@ fn stage(output: &Path, profile: &str) -> Result {
     if !binary.is_file() {
         return Err("build the requested native profile before staging".into());
     }
+    let compiled: nddev_browseruse_contract::Build =
+        serde_json::from_str(&capture(&binary, &["--version"])?)?;
+    let package: Value = serde_json::from_slice(&fs::read("package.json")?)?;
+    let runtime = package["packageManager"]
+        .as_str()
+        .ok_or("missing pinned executor runtime")?;
+    let source = source_commit()?;
+    if compiled.version != product_version()?
+        || (profile == "release" && (source.len() != 40 || compiled.commit != source))
+    {
+        return Err(
+            "native binary does not match this clean source commit; rebuild before release staging"
+                .into(),
+        );
+    }
     // Never remove or overwrite a caller's existing directory.
     fs::create_dir(output)?;
+    fs::write(
+        output.join("INCOMPLETE.txt"),
+        "Native staging is incomplete. Do not install this directory.\n",
+    )?;
     fs::create_dir(output.join("bin"))?;
     fs::copy(
         binary,
         output.join("bin").join(executable("nddev-browseruse")),
     )?;
     copy_tree(Path::new("packages/executor"), &output.join("executor"))?;
+    copy_tree(Path::new("packages/skill"), &output.join("skills"))?;
     copy_tree(
         Path::new("packages/desktop/extension"),
         &output.join("extension"),
     )?;
-    for file in ["package.json", "bun.lock", "LICENSE", "NOTICE"] {
+    for file in [
+        "package.json",
+        "bun.lock",
+        "LICENSE",
+        "NOTICE",
+        "Cargo.lock",
+        "design-system.lock.json",
+    ] {
         fs::copy(file, output.join(file))?;
     }
     for file in ["LICENSE", "NOTICE"] {
         fs::copy(file, output.join("extension").join(file))?;
     }
+    native_licenses::generate(output)?;
     let mut install = Command::new(std::env::current_dir()?.join(tool("bun")));
     install.current_dir(output).args([
         "install",
@@ -356,14 +392,18 @@ fn stage(output: &Path, profile: &str) -> Result {
     fs::write(
         output.join("CANDIDATE.json"),
         serde_json::to_vec_pretty(&serde_json::json!({
-            "product": "nddev-browseruse", "version": product_version()?, "source": source_commit()?,
+            "product": "nddev-browseruse", "version": compiled.version, "source": compiled.commit,
+            "executorRuntime": runtime,
             "profile": profile, "qualified": false, "nativeHostRegistered": false
         }))?,
     )?;
     fs::write(
         output.join("INSTALL.txt"),
-        "Candidate only. Loading the unpacked extension is the owner's action.\nNative-host registration is separate: run bin/nddev-browseruse install with the absolute installed Bun and executor/executor.ts paths and the chosen --browser.\nStaging does not change a browser profile, settings or native-host registration.\n",
+        format!(
+            "Candidate only. Review CANDIDATE.json and bin/nddev-browseruse --version. Complete existing agent sessions before changing the installation.\nLoading extension/ as an unpacked extension is the owner's action. Native-host registration is separate: run bin/nddev-browseruse install with the absolute installed {runtime} path, this directory's executor/executor.ts path and the chosen --browser.\nBun is an external prerequisite; its binary is not redistributed here. The bundled agent skill is under skills/nddev-browseruse; it does not replace global skills automatically.\nThe source NOTICE refers to packages/executor and packages/desktop/extension; this distribution maps them to executor and extension. Rust license texts are in licenses/rust and licenses/rust-toolchain; npm and DS/font notices accompany their packages.\nStaging does not change a browser profile, settings or native-host registration.\n"
+        ),
     )?;
+    fs::remove_file(output.join("INCOMPLETE.txt"))?;
     println!("{}", output.display());
     Ok(())
 }

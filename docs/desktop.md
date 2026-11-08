@@ -94,3 +94,30 @@ by the schema producer. `config/common.toml`, `dev.toml` and `production.toml`
 are validated by the same typed loader, which rejects duplicate and unknown
 values. `just generate` produces the shipped public projection. Check reads
 only; test rebuilds generated files in an isolated output directory to catch drift.
+
+## Preparing a distribution without registering a browser
+
+On the Ubuntu PC/build runner, use a clean Git checkout:
+
+```sh
+just setup
+just verify
+just build
+just stage /absolute/new/native-candidate
+just package-store /absolute/new/store-packet
+```
+
+`stage` checks that the release binary reports this exact source commit through
+`--version`. It copies the executor, production dependencies, unpacked extension,
+bundled agent skill and original Rust/npm/DS/font license notices. Bun 1.4.4 is an
+external prerequisite. Neither command changes browser registration or global
+skills. Finish existing sessions before the owner applies an update.
+
+Store packaging runs on Linux with the system `zip` and `unzip` tools. It sorts
+entries, fixes timestamps/modes and omits ZIP extra fields. Chrome and Edge ZIPs
+have identical engine bytes and omit the unpacked public key; `unpacked/` retains
+that key and its existing ID. SHA256SUMS and source/DS metadata accompany them.
+A partial directory retains INCOMPLETE.txt. A completed packet still has
+`qualified: false` until its acceptance evidence, store copy and owner-browser
+checks are complete. Edge's future assigned extension ID needs explicit native
+admission and browser acceptance before its listing can become operational.

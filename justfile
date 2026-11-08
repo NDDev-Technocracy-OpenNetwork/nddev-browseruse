@@ -51,3 +51,8 @@ phone-check:
 [group('browser')]
 stage output:
     {{ tools }} stage {{ quote(output) }}
+
+# Creates unpacked and Chrome/Edge ZIP packets from a clean source commit, without publishing.
+[group('browser')]
+package-store output:
+    {{ tools }} package-store {{ quote(output) }}
