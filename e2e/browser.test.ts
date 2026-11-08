@@ -473,12 +473,29 @@ beforeAll(async () => {
           document.documentElement.lang === language && document.body.dataset.consent === "true",
         language,
       );
-      await consent.evaluate(() => document.fonts.ready);
+      await consent.evaluate(async () => {
+        // Flush the translated layout so this language's font faces are requested before
+        // awaiting readiness; a previously resolved promise could leave fallback metrics.
+        document.body.getBoundingClientRect();
+        await document.fonts.ready;
+      });
       await consent.bringToFront();
       expect(
         await consent.evaluate(() => document.body.scrollHeight),
         `${language} disclosure height`,
       ).toBeLessThanOrEqual(600);
+      // The popup must also fit while a local font is unavailable or still loading.
+      await consent.evaluate(() => {
+        document.body.style.fontFamily = "Arial, sans-serif";
+      });
+      try {
+        expect(
+          await consent.evaluate(() => document.body.scrollHeight),
+          `${language} fallback-font disclosure height`,
+        ).toBeLessThanOrEqual(600);
+      } finally {
+        await consent.evaluate(() => document.body.style.removeProperty("font-family"));
+      }
       if (process.env.NDS_E2E_SHOTS)
         await consent
           .locator("body")
@@ -2612,10 +2629,13 @@ test("a private site keeps its content out of the journal, and the popup shows t
           language === "ar" ? "rtl" : "ltr",
         );
         await legal.evaluate(() => document.fonts.ready);
-        if (process.env.NDS_E2E_SHOTS)
+        if (process.env.NDS_E2E_SHOTS) {
+          await legal.bringToFront();
+          await legal.evaluate(() => scrollTo(0, 0));
           await legal.screenshot({
             path: join(process.env.NDS_E2E_SHOTS, `licenses-${language}.png`),
           });
+        }
         await legal.emulateMedia({ colorScheme: "dark" });
         await legal.waitForFunction(() => document.documentElement.dataset.theme === "dark");
       } finally {
