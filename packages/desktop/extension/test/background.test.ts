@@ -419,6 +419,20 @@ async function until<T>(found: () => T | undefined | false): Promise<T> {
 const P = 10;
 const Q = 20;
 
+test("a lost host removes its abandoned group tabs and preserves a tab the owner took back", async () => {
+  const { browser, send } = await worker({ p: P }, [
+    [1, P],
+    [2, P],
+  ]);
+  await send({ type: "claim", group: "p" })();
+  browser.move(2, -1);
+  browser.port.onDisconnect.fire();
+  await until(() => !browser.tabs.has(1));
+  expect(browser.actions).toContain("remove 1");
+  expect(browser.tabs.has(2)).toBe(true);
+  expect(browser.sessions.size).toBe(0);
+});
+
 test("a capture stylesheet is removed from its original document on success and failure", async () => {
   const { browser, send } = await worker({ p: P }, [[1, P]]);
   await send({ type: "claim", group: "p" })();

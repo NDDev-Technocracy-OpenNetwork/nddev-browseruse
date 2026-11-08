@@ -3210,6 +3210,67 @@ test("closing a session cleans only its own area", async () => {
   expect((await run("acceptance", "1")).body.error).toBe("session_not_found");
 });
 
+test("host loss automatically removes an abandoned agent group", async () => {
+  const owner = await observer.newPage();
+  await owner.goto(`${origin}/owner`);
+  const inspector = await observer.newPage();
+  await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
+  try {
+    await opened("lost-cleanup");
+    expect(
+      (
+        await run(
+          "lost-cleanup",
+          `const page = await context.newPage(); await page.goto("${origin}/?lost-cleanup"); return await page.title()`,
+        )
+      ).body.value,
+    ).toBe("Fixture");
+    const abandoned = await observed("/?lost-cleanup");
+    expect(abandoned).toBeDefined();
+    const group = await inspector.evaluate(async (url) => {
+      const api = globalThis as unknown as {
+        chrome: { tabs: { query(info: object): Promise<{ groupId: number }[]> } };
+      };
+      return (await api.chrome.tabs.query({ url }))[0]?.groupId;
+    }, `${origin}/?lost-cleanup`);
+    expect(group).toBeNumber();
+    const hostCommand = windows ? hostBinary : `${hostBinary} chrome-extension://`;
+    const [lost, ...others] = processes(hostCommand);
+    expect(others).toEqual([]);
+    expect(lost).toBeNumber();
+    process.kill(lost as number, "SIGKILL");
+    let ready = false;
+    for (let attempt = 0; attempt < 150; attempt++) {
+      await Bun.sleep(100);
+      if ((await cli("status")).body.enabled === true) {
+        ready = true;
+        break;
+      }
+    }
+    expect(ready).toBe(true);
+    expect(abandoned?.isClosed()).toBe(true);
+    expect(
+      await inspector.evaluate(async (id) => {
+        const api = globalThis as unknown as {
+          chrome: { tabGroups: { get(group: number): Promise<unknown> } };
+        };
+        return api.chrome.tabGroups.get(id as number).then(
+          () => true,
+          () => false,
+        );
+      }, group),
+    ).toBe(false);
+    expect(owner.isClosed()).toBe(false);
+    expect(owner.url()).toBe(`${origin}/owner`);
+    expect(processes(cdpEndpoint)).toHaveLength(0);
+    expect((await opened("lost-cleanup")).body.tabs).toBe(0);
+    expect((await cli("session", "close", "lost-cleanup")).code).toBe(0);
+  } finally {
+    await inspector.close();
+    await owner.close();
+  }
+});
+
 // The extension reloads itself when its installed files are newer, which ends
 // this host. Chrome for Testing disables command-line extensions on reload, so
 // the reloaded build itself is verified in a Load-unpacked browser.

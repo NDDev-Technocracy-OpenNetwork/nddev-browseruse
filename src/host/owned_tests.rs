@@ -906,6 +906,38 @@ async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_
 }
 
 #[tokio::test]
+async fn an_abandoned_owned_generation_is_reclaimed_without_its_caller_closing_it() {
+    let (host, mut queue, _root) = fixture();
+    host.create_owned("abandoned").unwrap();
+    {
+        let mut state = host.state();
+        let session = state.sessions.get_mut("abandoned").unwrap();
+        runtime::private_directory(&session.artifacts).unwrap();
+        session.opened = true;
+        session.used = Instant::now()
+            .checked_sub(IDLE_CLOSE + Duration::from_secs(1))
+            .unwrap();
+    }
+    let mut sweep = {
+        let host = host.clone();
+        tokio::spawn(async move { host.close_idle(Instant::now()).await })
+    };
+    let release = tokio::select! {
+        release = message(&mut queue) => release,
+        result = &mut sweep => {
+            result.unwrap();
+            panic!("an abandoned owned generation was left behind");
+        }
+    };
+    assert_eq!(release["type"], "release");
+    assert_eq!(release["group"], "abandoned");
+    assert_eq!(release["close"], true);
+    answer(&host, &release);
+    sweep.await.unwrap();
+    assert!(!host.state().sessions.contains_key("abandoned"));
+}
+
+#[tokio::test]
 async fn an_idle_cli_session_closes_with_its_tabs_while_owned_and_recent_ones_stay() {
     let (host, mut queue, _root) = fixture();
     host.reserve("idle", false).unwrap();
