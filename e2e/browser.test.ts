@@ -2415,9 +2415,17 @@ test("a burst of large responses keeps the session's executor", async () => {
   );
   expect(result.body.value).toBe("ok");
   expect((await run("acceptance", "1 + 1")).body.value).toBe("2");
-  await Bun.sleep(500);
-  const listed = await plain("-s", "acceptance", "activity", "--type", "network", "--last", "40");
-  expect(listed.stdout).toContain("/api/large?n=11");
+  // Network-body collection and journal delivery finish asynchronously after an execution.
+  // Wait for the actual metadata rather than assuming a loaded Windows runner flushes in 500 ms.
+  const deadline = Date.now() + 10_000;
+  let found = new Set<string>();
+  while (Date.now() < deadline) {
+    const listed = await plain("-s", "acceptance", "activity", "--type", "network", "--last", "40");
+    found = new Set(listed.stdout.match(/\/api\/large\?n=\d+/g) ?? []);
+    if (found.size === 12) break;
+    await Bun.sleep(100);
+  }
+  expect(found.size).toBe(12);
 });
 
 // Another device's browser is driven through that device's own CLI: here a device whose transport
