@@ -99,10 +99,23 @@ export type CaptureRequest = {
 };
 
 /**
+ * Operational deadline context, independent of retained observation data.
+ */
+export type ExecutionSettings = {
+    pendingSteps: number;
+    recentSteps: number;
+    /**
+     * Optional live tab metadata must leave room for the client's execution reply.
+     */
+    snapshotTimeoutMs: number;
+};
+
+/**
  * Public to the local thin executor. Fixed for one host/executor lifetime; policy stays live.
  */
 export type ExecutorSettings = {
     activity: ActivitySettings;
+    execution: ExecutionSettings;
     recorder: RecorderSettings;
 };
 
