@@ -162,7 +162,7 @@ impl Binary {
 
 /// The one extension contract this host speaks: every cdp and close request names its group,
 /// and the worker admits it only for that group's current attachment of the tab.
-const CONTRACT: u64 = 2;
+const CONTRACT: u64 = crate::protocol::VERSION as u64;
 
 #[derive(Default)]
 struct State {
@@ -1443,8 +1443,8 @@ impl Host {
                 timeout_ms,
                 expect,
             }) => Some((
-                session.project.clone(),
-                Some(session.generation.clone()),
+                session.project().to_owned(),
+                Some(session.generation().to_owned()),
                 code.clone(),
                 *timeout_ms,
                 expect.clone(),
@@ -1532,6 +1532,28 @@ impl Host {
 
     async fn handle(&self, request: Request) -> Reply {
         let result = match request {
+            Request::Capabilities => {
+                let state = self.state();
+                Ok(Reply::Capabilities(view::Capabilities {
+                    protocol: crate::protocol::VERSION,
+                    host: view::Build {
+                        version: env!("CARGO_PKG_VERSION").to_owned(),
+                        commit: option_env!("BROWSERUSE_SOURCE_COMMIT")
+                            .unwrap_or("unknown")
+                            .to_owned(),
+                    },
+                    browser_ready: Self::ready(&state).is_ok(),
+                    owned_sessions: true,
+                    cancellation: true,
+                    drained_close: true,
+                    group_control: state.terminal_groups && state.contract == Some(CONTRACT),
+                    terminal_groups: state.terminal_groups && state.contract == Some(CONTRACT),
+                    idle_timeout_ms: self.config.lifecycle.idle_timeout_ms,
+                    max_sessions: crate::protocol::MAX_SESSIONS,
+                    max_tabs: crate::protocol::MAX_TABS,
+                    max_execution_ms: crate::protocol::MAX_EXECUTION.as_millis() as u64,
+                }))
+            }
             Request::Status => {
                 let state = self.state();
                 Ok(Reply::Status(view::Status {
@@ -1573,9 +1595,9 @@ impl Host {
                 self.create_owned(&project).map(Reply::OwnedSession)
             }
             Request::OpenOwned { session } => {
-                match self.session_life(&session.project, Some(&session.generation)) {
+                match self.session_life(session.project(), Some(session.generation())) {
                     Ok(life) => self
-                        .open_generation(&session.project, &life)
+                        .open_generation(session.project(), &life)
                         .await
                         .map(Reply::Session),
                     Err(refusal) => Err(refusal),
@@ -1584,9 +1606,9 @@ impl Host {
             Request::CloseOwned {
                 session,
                 close_tabs,
-            } => match self.session_life(&session.project, Some(&session.generation)) {
+            } => match self.session_life(session.project(), Some(session.generation())) {
                 Ok(life) => self
-                    .close_generation(&session.project, &life, close_tabs, true)
+                    .close_generation(session.project(), &life, close_tabs, true)
                     .await
                     .map(|()| Reply::Closed),
                 Err(refusal) => Err(refusal),
@@ -1698,10 +1720,7 @@ impl Host {
 
     fn create_owned(&self, project: &str) -> Result<OwnedSession, Refusal> {
         let life = self.reserve(project, true)?;
-        Ok(OwnedSession {
-            project: project.into(),
-            generation: life.generation.clone(),
-        })
+        Ok(OwnedSession::new(project, life.generation.clone()))
     }
 
     async fn open(&self, project: &str) -> Result<view::Session, Refusal> {

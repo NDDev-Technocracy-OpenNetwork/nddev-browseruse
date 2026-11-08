@@ -316,19 +316,18 @@ dependencies = [
 name = "nddev-browseruse"
 version = "0.2.7"
 dependencies = [
- "async-io",
  "base64",
- "futures-io",
  "futures-util",
  "getrandom",
+ "nddev-browseruse-client",
  "nddev-browseruse-contract",
+ "nddev-browseruse-local-transport",
  "percent-encoding",
  "regex",
  "rustix",
  "serde",
  "serde_json",
  "sha2",
- "socket2",
  "tempfile",
  "thiserror",
  "tokio",
@@ -340,12 +339,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "nddev-browseruse-client"
+version = "0.2.7"
+dependencies = [
+ "nddev-browseruse-contract",
+ "nddev-browseruse-local-transport",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "nddev-browseruse-contract"
-version = "0.0.0"
+version = "0.2.7"
 dependencies = [
  "serde",
+ "serde_json",
+ "thiserror",
  "toml",
  "utoipa",
+]
+
+[[package]]
+name = "nddev-browseruse-local-transport"
+version = "0.2.7"
+dependencies = [
+ "async-io",
+ "futures-io",
+ "socket2",
+ "tokio",
 ]
 
 [[package]]

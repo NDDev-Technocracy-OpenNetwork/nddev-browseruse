@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{OpenApi, ToSchema};
 
+pub mod control;
+pub mod view;
+
 mod phone;
 pub use phone::PhoneLimits;
 mod executor;
@@ -188,6 +191,7 @@ pub struct OwnerRecording {
     info(title = "nddev-browseruse local contracts", version = "2"),
     components(schemas(
         FrontendConfig,
+        view::Capabilities,
         BrowserStatus,
         OwnerRecording,
         GroupStatus,

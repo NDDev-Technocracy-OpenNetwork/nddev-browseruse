@@ -12,6 +12,7 @@ use std::{
 
 type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
+mod architecture;
 mod configuration;
 mod design;
 mod legal;
@@ -39,6 +40,7 @@ fn execute() -> Result {
     match command.as_str() {
         "setup" => setup(),
         "check" => {
+            architecture::check()?;
             design::check()?;
             configuration::check()?;
             legal::check()?;
@@ -320,7 +322,7 @@ fn setup() -> Result {
 
 fn product_version() -> Result<String> {
     let cargo: toml::Value = toml::from_str(&fs::read_to_string("Cargo.toml")?)?;
-    Ok(cargo["package"]["version"]
+    Ok(cargo["workspace"]["package"]["version"]
         .as_str()
         .ok_or("product version is missing")?
         .into())

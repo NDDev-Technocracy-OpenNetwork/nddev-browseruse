@@ -1,6 +1,6 @@
 [package]
 name = "nddev-browseruse"
-version = "0.2.7"
+version.workspace = true
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
@@ -9,8 +9,18 @@ homepage = "https://nddev.ai"
 repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse"
 
 [workspace]
-members = ["tools", "crates/contract"]
+members = ["tools", "crates/contract", "crates/client", "crates/local-transport"]
 resolver = "3"
+
+[workspace.package]
+version = "0.2.7"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = "deny"
 
 [[bin]]
 name = "nddev-browseruse"
@@ -20,6 +30,8 @@ path = "src/bin/nddev-browseruse.rs"
 base64 = "=0.23.1"
 toml = "=1.2.0"
 nddev-browseruse-contract = { path = "crates/contract" }
+nddev-browseruse-client = { path = "crates/client" }
+nddev-browseruse-local-transport = { path = "crates/local-transport" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -40,17 +52,14 @@ rustix = { version = "1.1", features = ["process"] }
 
 # Windows has AF_UNIX sockets but tokio does not drive them; async-io does, without unsafe code.
 [target.'cfg(windows)'.dependencies]
-async-io = "2.6"
-futures-io = "0.3.34"
-socket2 = "0.6.5"
 windows-registry = "0.100"
 
 [dev-dependencies]
 sha2 = "0.11"
 tempfile = "3"
 
-[lints.rust]
-unsafe_code = "forbid"
+[lints]
+workspace = true
 
 # The installed host: thin LTO and one codegen unit make it about a quarter smaller (11.9 to
 # 9.0 MB) at the same start-up, and symbols stay for readable panics, as in the RDS host.

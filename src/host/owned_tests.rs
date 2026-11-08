@@ -91,10 +91,26 @@ fn answer(host: &Arc<Host>, request: &Value) {
     host.on_extension(json!({ "type": "result", "id": request["id"], "result": result }));
 }
 
+#[tokio::test]
+async fn discovery_reports_this_hosts_loaded_contract_without_creating_browser_work() {
+    let (host, mut queue, _root) = fixture();
+    let Reply::Capabilities(caps) = host.handle(Request::Capabilities).await else {
+        panic!("capabilities were not returned");
+    };
+    assert_eq!(caps.protocol, crate::protocol::VERSION);
+    assert_eq!(caps.host.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(caps.idle_timeout_ms, host.config.lifecycle.idle_timeout_ms);
+    assert!(caps.browser_ready && caps.owned_sessions && caps.cancellation && caps.drained_close);
+    assert!(!caps.group_control && !caps.terminal_groups);
+    assert!(host.state().sessions.is_empty());
+    assert!(host.pending().is_empty());
+    assert!(queue.try_recv().is_err());
+}
+
 fn opened_client(host: &Host, handle: &OwnedSession, id: u64) -> mpsc::Receiver<String> {
     let (send, receive) = mpsc::channel(16);
     let mut state = host.state();
-    let session = state.sessions.get_mut(&handle.project).unwrap();
+    let session = state.sessions.get_mut(handle.project()).unwrap();
     runtime::private_directory(&session.artifacts).unwrap();
     session.opened = true;
     session.client = Some(relay::Client::new(id, send, CancellationToken::new()));
@@ -129,7 +145,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     let (host, mut queue, _root) = fixture();
     let old = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&old.project, Some(&old.generation))
+        .session_life(old.project(), Some(old.generation()))
         .unwrap();
     let mut client = opened_client(&host, &old, 1);
     let expired = host
@@ -150,7 +166,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     let _ = message(&mut queue).await;
     let other = host.create_owned("other").unwrap();
     let other_life = host
-        .session_life(&other.project, Some(&other.generation))
+        .session_life(other.project(), Some(other.generation()))
         .unwrap();
     let _other_client = opened_client(&host, &other, 2);
     let other_id = host
@@ -187,7 +203,7 @@ async fn expired_cdp_is_released_only_by_strict_ack_for_its_exact_life() {
     host.on_extension(json!({ "type": "result", "id": pending, "result": { "late": true } }));
     assert_eq!(
         host.session_life("project", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     host.shutdown().await.unwrap();
 }
@@ -369,7 +385,7 @@ async fn delayed_old_cdp_cannot_enqueue_into_a_replacement_even_with_the_same_cl
     assert_eq!(*life.cdp_pending.borrow(), 0);
     assert_eq!(
         host.session_life("project", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     host.shutdown().await.unwrap();
 }
@@ -416,10 +432,7 @@ async fn disabled_then_enabled_before_sweep_still_finishes_the_canceled_generati
 async fn legacy_reopen_after_captured_drain_finishes_does_not_report_a_missing_session() {
     let (host, mut queue, _root) = fixture();
     let old = host.reserve("legacy", false).unwrap();
-    let handle = OwnedSession {
-        project: "legacy".into(),
-        generation: old.generation.clone(),
-    };
+    let handle = OwnedSession::new("legacy", old.generation.clone());
     let _client = opened_client(&host, &handle, 1);
     host.on_control(false);
     host.on_control(true);
@@ -456,10 +469,7 @@ async fn legacy_reopen_after_captured_drain_finishes_does_not_report_a_missing_s
 async fn legacy_reopen_after_captured_drain_never_adopts_another_replacement() {
     let (host, mut queue, _root) = fixture();
     let old = host.reserve("legacy", false).unwrap();
-    let handle = OwnedSession {
-        project: "legacy".into(),
-        generation: old.generation.clone(),
-    };
+    let handle = OwnedSession::new("legacy", old.generation.clone());
     let _client = opened_client(&host, &handle, 1);
     host.on_control(false);
     host.on_control(true);
@@ -481,7 +491,7 @@ async fn legacy_reopen_after_captured_drain_never_adopts_another_replacement() {
     assert!(matches!(reopening.await, Err(Refusal::SessionNotFound)));
     assert_eq!(
         host.session_life("legacy", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     assert!(queue.try_recv().is_err());
     host.shutdown().await.unwrap();
@@ -535,8 +545,7 @@ async fn owned_handles_cannot_adopt_or_change_a_foreign_or_replaced_session() {
     let (host, mut queue, _root) = fixture();
     let original = host.create_owned("project").unwrap();
     assert!(matches!(host.create_owned("project"), Err(Refusal::Busy)));
-    let mut foreign = original.clone();
-    foreign.generation = "foreign".into();
+    let foreign = OwnedSession::new(original.project(), "foreign");
     assert!(matches!(
         host.handle(Request::CloseOwned {
             session: foreign.clone(),
@@ -581,14 +590,14 @@ async fn owned_handles_cannot_adopt_or_change_a_foreign_or_replaced_session() {
         ));
     }
     assert!(matches!(
-        host.session_life(&original.project, Some(&original.generation)),
+        host.session_life(original.project(), Some(original.generation())),
         Err(Refusal::SessionNotFound)
     ));
     assert_eq!(
-        host.session_life(&replacement.project, Some(&replacement.generation))
+        host.session_life(replacement.project(), Some(replacement.generation()))
             .unwrap()
             .generation,
-        replacement.generation
+        replacement.generation()
     );
     assert!(
         queue.try_recv().is_err(),
@@ -657,7 +666,7 @@ async fn dropped_open_waiter_retains_pending_claim_until_actual_reply() {
     let (host, mut queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     let opened = {
         let host = host.clone();
@@ -693,7 +702,7 @@ async fn unacknowledged_action_holds_closed_admission_instead_of_claiming_cleanu
     let (host, _queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     drop(PendingWork::new(life));
     assert!(matches!(
@@ -722,7 +731,7 @@ async fn prepared_executor_fixture() -> (
     let (host, queue, root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     {
         let mut state = host.state();
@@ -746,7 +755,7 @@ async fn executing_fixture() -> (
 ) {
     let (host, queue, root, handle, pid) = prepared_executor_fixture().await;
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     let task = {
         let host = host.clone();
@@ -906,7 +915,7 @@ async fn control_disconnect_reaps_its_executor_and_retains_the_owned_handle_for_
     assert!(!PathBuf::from(format!("/proc/{pid}")).exists());
     assert!(host.state().sessions["project"].closing);
     assert!(
-        host.session_life(&handle.project, Some(&handle.generation))
+        host.session_life(handle.project(), Some(handle.generation()))
             .is_ok()
     );
     host.shutdown().await.unwrap();
@@ -1067,7 +1076,7 @@ async fn terminal_proof_ends_only_its_generation_and_preserves_unknown_action_ou
     host.on_extension(json!({"type": "result", "id": request["id"], "result": {"tab": 9}}));
     assert_eq!(
         host.session_life("project", None).unwrap().generation,
-        replacement.generation
+        replacement.generation()
     );
     host.shutdown().await.unwrap();
 }
@@ -1141,7 +1150,7 @@ async fn a_replacement_whose_life_closes_during_its_release_claims_and_starts_no
     let (host, mut queue, _root) = fixture();
     let handle = host.create_owned("project").unwrap();
     let life = host
-        .session_life(&handle.project, Some(&handle.generation))
+        .session_life(handle.project(), Some(handle.generation()))
         .unwrap();
     {
         let mut state = host.state();
@@ -1233,7 +1242,7 @@ async fn any_other_contract_seals_open_lives_and_a_later_supported_hello_revives
         let (host, mut queue, _root) = fixture();
         let handle = host.create_owned("project").unwrap();
         let life = host
-            .session_life("project", Some(&handle.generation))
+            .session_life("project", Some(handle.generation()))
             .unwrap();
         let _client = opened_client(&host, &handle, 1);
         let mut hello = json!({ "type": "hello", "enabled": true, "version": "0.0.5" });

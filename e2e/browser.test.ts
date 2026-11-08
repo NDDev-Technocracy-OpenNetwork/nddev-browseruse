@@ -694,6 +694,26 @@ test("the connected extension reports enabled control", async () => {
   expect(String(status.body.browser)).toStartWith("Chrome/");
 });
 
+test("an embedding client discovers capabilities without starting a browser session", async () => {
+  const before = (await cli("session", "list")).body;
+  const reply = await cli("capabilities");
+  expect(reply.code).toBe(0);
+  expect(reply.body).toMatchObject({
+    protocol: 2,
+    browser_ready: true,
+    owned_sessions: true,
+    cancellation: true,
+    drained_close: true,
+    group_control: true,
+    terminal_groups: true,
+    idle_timeout_ms: 300000,
+    max_sessions: 8,
+    max_tabs: 32,
+    max_execution_ms: 25000,
+  });
+  expect((await cli("session", "list")).body).toEqual(before);
+});
+
 test("the executor receives validated operator limits from its own host", async () => {
   const project = "configuration";
   await opened(project);

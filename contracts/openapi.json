@@ -181,6 +181,71 @@
         },
         "additionalProperties": false
       },
+      "Capabilities": {
+        "type": "object",
+        "description": "Discovery is a separate operation so an older client receives the unchanged Status shape.",
+        "required": [
+          "protocol",
+          "host",
+          "browser_ready",
+          "owned_sessions",
+          "cancellation",
+          "drained_close",
+          "group_control",
+          "terminal_groups",
+          "idle_timeout_ms",
+          "max_sessions",
+          "max_tabs",
+          "max_execution_ms"
+        ],
+        "properties": {
+          "browser_ready": {
+            "type": "boolean"
+          },
+          "cancellation": {
+            "type": "boolean"
+          },
+          "drained_close": {
+            "type": "boolean"
+          },
+          "group_control": {
+            "type": "boolean"
+          },
+          "host": {
+            "$ref": "#/components/schemas/Build"
+          },
+          "idle_timeout_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_execution_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_sessions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_tabs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "owned_sessions": {
+            "type": "boolean"
+          },
+          "protocol": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "terminal_groups": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "CaptureFailure": {
         "type": "string",
         "enum": [

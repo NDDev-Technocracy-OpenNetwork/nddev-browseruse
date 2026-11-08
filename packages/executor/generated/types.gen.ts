@@ -60,6 +60,24 @@ export type Build = {
     version: string;
 };
 
+/**
+ * Discovery is a separate operation so an older client receives the unchanged Status shape.
+ */
+export type Capabilities = {
+    browser_ready: boolean;
+    cancellation: boolean;
+    drained_close: boolean;
+    group_control: boolean;
+    host: Build;
+    idle_timeout_ms: number;
+    max_execution_ms: number;
+    max_sessions: number;
+    max_tabs: number;
+    owned_sessions: boolean;
+    protocol: number;
+    terminal_groups: boolean;
+};
+
 export type CaptureFailure = 'policy_changed' | 'document_changed' | 'private_page' | 'capacity' | 'invalid_request' | 'unavailable' | 'stopped' | 'frame_limit' | 'target_closed';
 
 export type CaptureReply = {

@@ -65,7 +65,11 @@ struct Completed {
 
 impl Executor {
     /// Starts the process without waiting for it to get ready.
-    pub fn start(config: &Config, endpoint: &str, artifacts: &Path) -> Result<Self, Refusal> {
+    pub(super) fn start(
+        config: &Config,
+        endpoint: &str,
+        artifacts: &Path,
+    ) -> Result<Self, Refusal> {
         let mut command = Command::new(&config.bun);
         command
             .arg(&config.executor)
@@ -104,7 +108,7 @@ impl Executor {
 
     /// Waits until the process is ready. A wait that reaches `deadline` is a timeout that keeps
     /// the start going; one that reaches the start's own limit makes the executor unavailable.
-    pub async fn ready(&mut self, deadline: Instant) -> Result<(), Refusal> {
+    pub(super) async fn ready(&mut self, deadline: Instant) -> Result<(), Refusal> {
         let limit = match self.start {
             Start::Ready => return Ok(()),
             Start::Failed => return Err(Refusal::ExecutorUnavailable),
@@ -117,7 +121,7 @@ impl Executor {
     }
 
     /// Whether the process has reported ready, reading only what it has already written.
-    pub fn is_ready(&mut self) -> bool {
+    pub(super) fn is_ready(&mut self) -> bool {
         if let Start::Starting(_) = self.start
             && let Some(result) = ready_line(&mut self.output, &mut self.line).now_or_never()
         {
@@ -136,7 +140,7 @@ impl Executor {
     }
 
     /// Kills the process and waits until it has exited.
-    pub async fn stop(&mut self) -> Result<(), Refusal> {
+    pub(super) async fn stop(&mut self) -> Result<(), Refusal> {
         if self
             .child
             .try_wait()
@@ -167,7 +171,7 @@ impl Executor {
         result
     }
 
-    pub async fn run(
+    pub(super) async fn run(
         &mut self,
         code: &str,
         deadline: Instant,

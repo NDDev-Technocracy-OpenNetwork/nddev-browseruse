@@ -31,7 +31,7 @@ impl Default for FrameScope {
 }
 
 impl FrameScope {
-    pub fn observe(&mut self, method: &str, params: &Value) {
+    pub(super) fn observe(&mut self, method: &str, params: &Value) {
         if matches!(
             method,
             "Page.frameNavigated" | "Page.frameAttached" | "Page.frameDetached"
@@ -51,7 +51,7 @@ impl FrameScope {
             }
         }
     }
-    pub fn advance(&self) {
+    pub(super) fn advance(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
     }
 }

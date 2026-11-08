@@ -182,7 +182,7 @@ impl Client {
         }
     }
 
-    pub fn send(&self, message: &Value) -> bool {
+    pub(super) fn send(&self, message: &Value) -> bool {
         self.outbound.try_send(message.to_string()).is_ok()
     }
 }

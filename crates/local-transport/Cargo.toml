@@ -1,0 +1,18 @@
+[package]
+name = "nddev-browseruse-local-transport"
+version.workspace = true
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse"
+
+[target.'cfg(any(unix, windows))'.dependencies]
+tokio = { version = "1.54", features = ["net", "io-util"] }
+
+[target.'cfg(windows)'.dependencies]
+async-io = "2.6"
+futures-io = "0.3.34"
+socket2 = "0.6.5"
+
+[lints]
+workspace = true
