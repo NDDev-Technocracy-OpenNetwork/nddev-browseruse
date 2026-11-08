@@ -77,9 +77,13 @@ Tabs can also run in the browser of another of the owner's devices, near its net
 or to spare this one's resources.
 
 - `nddev-browseruse devices` lists the configured devices and their status.
-- `--device <name>` before a command, or `NDS_BROWSER_DEVICE=<name>`, runs it there:
+- `--device <name>` before a command runs it there:
   `nddev-browseruse --device pc session new docs`, then `nddev-browseruse --device pc -s docs -e '...'`.
   The code runs on that device, beside its browser, and replies read the same.
+- A local `config --default-device <name>` sets the next CLI process's default. `--local`
+  bypasses configured defaults. Forwarding requires peer CLI 0.2.5 or later; it explicitly
+  chooses that peer's local runtime, so its own default cannot forward the command again.
+  Legacy `NDS_BROWSER_DEVICE` settings are refused; migrate and clear them before continuing.
 - Artifacts stay on the device. `nddev-browseruse --device pc -s docs artifact list` lists them, and
   `... artifact shot.png --output ./shot.png` copies one here.
 - Each device has its own sessions, tabs and owner. A device that is off or unreachable answers
@@ -89,8 +93,11 @@ or to spare this one's resources.
 
 When the owner serves the browser of an Android phone, tabs can run there too.
 
-- `nddev-browseruse --phone <serial>` before a command, or `NDS_BROWSER_PHONE=<serial>`, uses that
+- `nddev-browseruse --phone <serial>` before a command uses that
   phone's browser: `nddev-browseruse --phone R58M12345AB session new shop`.
+- `config --default-phone <serial>` selects a default phone. Clear a configured device default
+  first with `config --default-device ''`; the configuration rejects two simultaneous defaults.
+  Legacy `NDS_BROWSER_PHONE` settings are refused rather than silently selecting a destination.
 - `nddev-browseruse phones` lists the phones and their browsers.
 - You see only the tabs you open there, with the phone's viewport, user agent and touch input.
 - `Error (unavailable)` means the owner is not serving that phone. Ask the owner, and never

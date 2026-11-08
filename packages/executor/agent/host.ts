@@ -2,12 +2,16 @@
 // there (a download's kept file, the owner's observation profile) and reports profile changes on
 // it, so collection follows the owner's switch between executions too (docs/observability.md).
 import type { Browser, CDPSession } from "playwright-core";
+import type { ExecutorSettings } from "../generated/types.gen.js";
+import { configure } from "./settings";
 
 export type Observation = "full" | "standard" | "off";
 
 let session: Promise<CDPSession | undefined> | undefined;
 let current: Observation = "standard";
 let epoch: string | undefined;
+let configured = false;
+let newest: string | undefined;
 const listeners = new Set<(profile: Observation) => void>();
 
 function parse(value: unknown): Observation {
@@ -19,9 +23,12 @@ function set(value: { profile?: unknown; epoch?: unknown } | undefined): void {
     typeof value?.epoch === "string" && /^[0-9a-f]{16}$/.test(value.epoch)
       ? value.epoch
       : undefined;
+  // Fixed-width host-local generations increase within this connection's lifetime.
+  if (token && newest && token < newest) return;
+  if (token) newest = token;
   let profile = parse(value?.profile);
   // An older host cannot revoke already-running work, so never collect through it.
-  if (profile === "full" && !token) profile = "standard";
+  if (profile === "full" && (!token || !configured)) profile = "standard";
   if (profile === current && token === epoch) return;
   current = profile;
   epoch = token;
@@ -41,6 +48,7 @@ export function connect(browser: Browser): Promise<CDPSession | undefined> {
           ): void;
         }
       ).on("NDS.observation", set);
+      configured = configure(await ask<ExecutorSettings>(cdp, "NDS.executorSettings", {}));
       const answer = await ask<{ profile?: unknown; epoch?: unknown }>(cdp, "NDS.observation", {});
       set(answer);
       browser.on("disconnected", () => set({ profile: "off" }));

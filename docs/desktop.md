@@ -73,6 +73,34 @@ Edge's assigned store ID must also be admitted and tested before its release.
   extension older than the host, the host refuses it, `status` reports `compatible: false`, and
   the extension shows `!` on its icon and explains in its popup which side to update.
 
+## Native configuration and migration
+
+The installer delivers `common.toml` and `profile.toml` under the existing `nds-browser-use`
+configuration namespace. Valid operator edits survive reinstallation. An invalid file stops
+installation/startup; it is never silently replaced with defaults. `config` validates a complete
+composition before writing and supports `--runtime-dir`, `--default-device`, `--default-phone`
+and `--adb-server`. Use an empty string to clear an override. OS `HOME`/XDG/LOCALAPPDATA locations
+remain platform conventions; application values no longer come from environment variables.
+
+Migrate `NDS_BROWSER_USE_RUNTIME_DIR`, `NDS_BROWSER_DEVICE`, `NDS_BROWSER_PHONE` to these fields
+and clear the old variables. A nonempty old setting refuses an operation with
+`invalid_configuration`. The config and local `--version` commands remain available for repair.
+Phone operations also reject legacy ADB endpoint variables. Runtime/ADB changes require finishing
+existing sessions and restarting the host; CLI defaults apply to the next CLI process. Explicit
+`--device`/`--phone` wins over a default, and `--local` bypasses both defaults. Forwarding needs a
+peer CLI at least 0.2.5 and cannot inherit that peer's routing defaults.
+
+The host sends only validated executor budgets to its own executor before observation starts;
+operator changes apply to new executor connections. A missing/invalid budget handshake stops
+Full collection. Profiles and collection-generation tokens are read atomically, and late replies
+cannot restore an older collection generation after Off or a private-site change.
+
+After Edge assigns its listing ID, run the same installer with
+`--browser edge --extension-id <assigned ID>`, plus the candidate's Bun/executor paths.
+It adds an exact explicit native admission while preserving existing CWS/unpacked IDs. No Edge
+listing ID is needed to prepare the package. Loading it and checking the installed Edge build
+remain owner steps after the card exists.
+
 
 ## Public UI and contracts
 

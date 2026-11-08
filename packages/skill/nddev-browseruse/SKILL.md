@@ -31,6 +31,9 @@ nddev-browseruse session close docs
   double quotes for strings inside the JavaScript. Put longer code in a file and pass `-f`.
 - Add `--device <name>` to run on another of the owner's computers, or `--phone <serial>` for
   the owner's phone, when the owner serves it.
+- `--local` bypasses configured device/phone defaults. Peer forwarding needs CLI 0.2.5 or later.
+  Nonempty legacy NDS routing/runtime or phone ADB endpoint environment settings require explicit
+  migration to installed configuration; never silently retry a refused action elsewhere.
 - Close the session when the task is done. That closes its tabs too.
 - Workflow recording needs the owner's Full observation choice. Off, Standard and changes to
   private sites stop it; Full does not restart it. Images are not pixel-redacted. Export needed

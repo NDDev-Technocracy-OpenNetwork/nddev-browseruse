@@ -78,6 +78,16 @@ impl Default for Policy {
 }
 
 impl Policy {
+    /// One atomic snapshot: a reply never pairs a profile with another generation's token.
+    pub fn snapshot(&self) -> (Observation, String) {
+        let state = self.0.load(Ordering::Acquire);
+        let profile = match state & MODE_MASK {
+            2 => Observation::Full,
+            1 => Observation::Standard,
+            _ => Observation::Off,
+        };
+        (profile, format!("{state:016x}"))
+    }
     pub fn profile(&self) -> Observation {
         match self.0.load(Ordering::Acquire) & MODE_MASK {
             2 => Observation::Full,

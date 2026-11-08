@@ -12,7 +12,7 @@ mod observation;
 mod relay;
 
 use crate::{
-    CancellationToken, EXTENSION_IDS, IoError, OwnedSession, UNPACKED_EXTENSION_ID,
+    CancellationToken, IoError, OwnedSession, UNPACKED_EXTENSION_ID,
     protocol::{
         self, Document, FRAME_LIMIT, Header, MAX_SESSIONS, MAX_TABS, PAYLOAD_LIMIT, Refusal, Reply,
         Request,
@@ -306,15 +306,16 @@ impl Drop for PendingWork {
 
 /// Whether Chrome started this host for one of the admitted extension builds.
 pub fn admitted(origin: &str) -> bool {
-    EXTENSION_IDS
-        .iter()
-        .any(|id| origin == format!("chrome-extension://{id}/"))
+    crate::configuration::admitted(origin)
 }
 
 /// The host Chrome starts for the desktop extension: it speaks native messaging on stdin/stdout.
 pub async fn run(origin: &str, config: Config) -> Result<(), HostError> {
     if !admitted(origin) {
         return Err(HostError::Origin);
+    }
+    if !config.executor_settings.validate() {
+        return Err(HostError::Io(IoError::InvalidConfiguration));
     }
     let installed = installed_manifest(origin);
     let binary = std::env::current_exe()

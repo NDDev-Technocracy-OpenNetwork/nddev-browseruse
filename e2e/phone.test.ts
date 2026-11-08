@@ -36,7 +36,11 @@ const env: Record<string, string> = {
   ...(process.env as Record<string, string>),
   XDG_CONFIG_HOME: join(root, "config"),
   XDG_STATE_HOME: join(root, "state"),
-  NDS_BROWSER_USE_RUNTIME_DIR: runtime,
+  NDS_BROWSER_USE_RUNTIME_DIR: "",
+  NDS_BROWSER_DEVICE: "",
+  NDS_BROWSER_PHONE: "",
+  ADB_SERVER_SOCKET: "",
+  ANDROID_ADB_SERVER_PORT: "",
 };
 
 let observer: BrowserContext;
@@ -180,6 +184,8 @@ beforeAll(async () => {
   if (!windows) chmodSync(binary, 0o755);
   const registration = await cli(
     "install",
+    "--runtime-dir",
+    runtime,
     "--bun",
     process.execPath,
     "--executor",
@@ -203,7 +209,7 @@ beforeAll(async () => {
   await new Promise<void>((done) => adb.listen(0, "127.0.0.1", done));
   const address = adb.address();
   if (address === null || typeof address === "string") throw new Error("no ADB port");
-  env.ADB_SERVER_SOCKET = `tcp:127.0.0.1:${address.port}`;
+  expect((await cli("config", "--adb-server", `127.0.0.1:${address.port}`)).code).toBe(0);
 }, 120_000);
 
 afterAll(async () => {
@@ -282,6 +288,7 @@ test("a page the agent's tab opens joins its session", async () => {
      await popup.waitForLoadState();
      return popup.url()`,
   );
+  expect(result, JSON.stringify(result.body)).toMatchObject({ code: 0 });
   expect(result.body.value).toBe(`${origin}/popup`);
 });
 

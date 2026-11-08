@@ -40,6 +40,15 @@ impl Fixture {
         self.root.path().join("runtime")
     }
 
+    fn config(&self) -> PathBuf {
+        let base = if cfg!(windows) {
+            self.root.path().to_owned()
+        } else {
+            self.root.path().join("config")
+        };
+        base.join("nds-browser-use")
+    }
+
     /// This host's session areas: under the state directory, named by its runtime directory.
     fn sessions(&self) -> PathBuf {
         use sha2::{Digest, Sha256};
@@ -63,7 +72,11 @@ impl Fixture {
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("XDG_STATE_HOME", self.root.path().join("state"))
             .env("LOCALAPPDATA", self.root.path())
-            .env("NDS_BROWSER_USE_RUNTIME_DIR", self.runtime())
+            .env("NDS_BROWSER_USE_RUNTIME_DIR", "")
+            .env("NDS_BROWSER_DEVICE", "")
+            .env("NDS_BROWSER_PHONE", "")
+            .env("ADB_SERVER_SOCKET", "")
+            .env("ANDROID_ADB_SERVER_PORT", "")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -79,6 +92,8 @@ impl Fixture {
         let output = self
             .command(&[
                 "install",
+                "--runtime-dir",
+                self.runtime().to_str().unwrap(),
                 "--bun",
                 HOST,
                 "--executor",
@@ -101,6 +116,11 @@ impl Fixture {
         std::fs::create_dir_all(&config).unwrap();
         let host = serde_json::json!({ "bun": HOST, "executor": executor });
         std::fs::write(config.join("host.json"), host.to_string()).unwrap();
+        let configured = self
+            .command(&["config", "--runtime-dir", self.runtime().to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(configured.status.success());
     }
 }
 
@@ -161,6 +181,84 @@ fn a_foreign_origin_is_refused_before_any_local_state() {
             !fixture.runtime().exists(),
             "a refused caller created the runtime directory"
         );
+    }
+}
+
+#[test]
+fn an_additional_catalog_origin_requires_exact_valid_installed_admission() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let admission = fixture.config().join("admission.json");
+    let bytes = serde_json::to_vec(
+        &serde_json::json!({ "schema": 1, "ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] }),
+    )
+    .unwrap();
+    std::fs::write(&admission, &bytes).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&admission, std::fs::Permissions::from_mode(0o600)).unwrap();
+    // An ordinary reinstall retains admitted future Edge identities in the browser manifest.
+    #[cfg(unix)]
+    {
+        fixture.install();
+        let path = fixture
+            .root
+            .path()
+            .join("hosts")
+            .join(format!("{}.json", nddev_browseruse::NATIVE_HOST));
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(
+            manifest["allowed_origins"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|id| id == FOREIGN)
+        );
+    }
+    let mut host = fixture.command(&[FOREIGN]).spawn().unwrap();
+    appears(&fixture.runtime().join("control.sock"));
+    drop(host.stdin.take());
+    assert!(wait(&mut host, Duration::from_secs(5)).success());
+    for origin in [
+        "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/extra",
+        "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaq/",
+    ] {
+        let mut host = fixture.command(&[origin]).spawn().unwrap();
+        assert_eq!(wait(&mut host, Duration::from_secs(5)).code(), Some(2));
+        assert!(!present(&fixture.runtime().join("control.sock")));
+    }
+    std::fs::write(admission, b"{\"schema\":1,\"ids\":[\"*\"]}").unwrap();
+    let mut host = fixture.command(&[FOREIGN]).spawn().unwrap();
+    assert_eq!(wait(&mut host, Duration::from_secs(5)).code(), Some(2));
+    assert!(!present(&fixture.runtime().join("control.sock")));
+}
+
+#[test]
+fn legacy_routing_is_refused_and_invalid_config_keeps_the_previous_values() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let common = fixture.config().join("common.toml");
+    let before = std::fs::read(&common).unwrap();
+    let invalid = fixture
+        .command(&["config", "--default-device", "-wrong"])
+        .output()
+        .unwrap();
+    assert_eq!(invalid.status.code(), Some(2));
+    assert_eq!(std::fs::read(common).unwrap(), before);
+    for name in [
+        "NDS_BROWSER_DEVICE",
+        "NDS_BROWSER_PHONE",
+        "NDS_BROWSER_USE_RUNTIME_DIR",
+    ] {
+        let output = fixture
+            .command(&["status"])
+            .env(name, "legacy-fixture")
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        let body: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(body["error"], "invalid_configuration");
+        assert!(!present(&fixture.runtime().join("control.sock")));
     }
 }
 

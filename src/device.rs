@@ -50,10 +50,14 @@ impl Transport {
     /// The program and arguments that run the device's CLI with `args`. Over ssh the remote
     /// shell parses one command line, so every argument is quoted for it; nothing is interpreted.
     pub fn invocation(&self, args: &[&str]) -> (String, Vec<String>) {
+        // A receiver must not redirect an explicit remote operation through its own defaults.
+        let args: Vec<&str> = std::iter::once("--local")
+            .chain(args.iter().copied())
+            .collect();
         match self {
             Self::Ssh { host, cli } => {
                 let mut line = remote_path(cli);
-                for arg in args {
+                for arg in &args {
                     line.push(' ');
                     line.push_str(&quote(arg));
                 }
@@ -78,15 +82,11 @@ impl Devices {
     /// `devices.json` beside the host configuration. A missing file means no devices. The file
     /// says which commands run, so it must be a regular file only its owner can change.
     pub fn load() -> Result<Self, IoError> {
-        let path = crate::install::config_dir()?.join("devices.json");
-        match std::fs::symlink_metadata(&path) {
-            Ok(metadata) => {
-                private(&path, &metadata)?;
-                Self::parse(&std::fs::read(&path).map_err(|_| IoError::Unavailable)?)
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Self(BTreeMap::new())),
-            Err(_) => Err(IoError::Unavailable),
-        }
+        crate::configuration::devices()
+    }
+
+    pub(crate) fn empty() -> Self {
+        Self(BTreeMap::new())
     }
 
     pub fn parse(bytes: &[u8]) -> Result<Self, IoError> {
@@ -172,7 +172,7 @@ fn quote(arg: &str) -> String {
 }
 
 #[cfg(unix)]
-fn private(path: &Path, metadata: &std::fs::Metadata) -> Result<(), IoError> {
+pub(crate) fn private(path: &Path, metadata: &std::fs::Metadata) -> Result<(), IoError> {
     use std::os::unix::fs::MetadataExt;
     let mode = metadata.mode();
     if !metadata.file_type().is_file()
@@ -195,7 +195,7 @@ fn directory_owner(path: &Path) -> Result<u32, IoError> {
 }
 
 #[cfg(windows)]
-fn private(_path: &Path, metadata: &std::fs::Metadata) -> Result<(), IoError> {
+pub(crate) fn private(_path: &Path, metadata: &std::fs::Metadata) -> Result<(), IoError> {
     // The per-user local application data directory is private to the user on Windows.
     if metadata.file_type().is_file() {
         Ok(())
@@ -273,7 +273,7 @@ mod tests {
         );
         assert_eq!(
             argv[7],
-            r#""$HOME"/'bin/nds browser' '-s' 'it'\''s' '-e' '$(rm -rf ~) `x` "y"'"#
+            r#""$HOME"/'bin/nds browser' '--local' '-s' 'it'\''s' '-e' '$(rm -rf ~) `x` "y"'"#
         );
     }
 
@@ -286,7 +286,7 @@ mod tests {
             transport.invocation(&["-s", "a b", "status"]),
             (
                 PROGRAM.into(),
-                vec!["-s".into(), "a b".into(), "status".into()]
+                vec!["--local".into(), "-s".into(), "a b".into(), "status".into()]
             )
         );
     }

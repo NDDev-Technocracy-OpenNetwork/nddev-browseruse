@@ -41,9 +41,12 @@ pub(crate) fn sessions_directory() -> Result<PathBuf, IoError> {
 }
 
 pub(crate) fn directory() -> Result<PathBuf, IoError> {
-    let path = match std::env::var_os("NDS_BROWSER_USE_RUNTIME_DIR") {
-        Some(path) => PathBuf::from(path),
-        None => user_runtime()?,
+    crate::configuration::reject_legacy_environment()?;
+    let native = crate::configuration::effective()?.native;
+    let path = if native.runtime_directory.is_empty() {
+        user_runtime()?
+    } else {
+        PathBuf::from(native.runtime_directory)
     };
     if !path.is_absolute() {
         return Err(IoError::InvalidConfiguration);
