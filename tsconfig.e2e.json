@@ -1,9 +1,18 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2024", "DOM"],
-    "types": ["bun"],
+    "lib": [
+      "ES2024",
+      "DOM"
+    ],
+    "types": [
+      "bun",
+      "chrome"
+    ],
     "noEmit": true
   },
-  "files": ["e2e/browser.test.ts", "e2e/phone.test.ts"]
+  "files": [
+    "e2e/browser.test.ts",
+    "e2e/phone.test.ts"
+  ]
 }

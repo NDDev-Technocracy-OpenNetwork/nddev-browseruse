@@ -7,3 +7,8 @@ if (location.pathname === "/foreign") {
     document.body.append(frame);
   }, 500);
 }
+
+// The coexistence fixture discovers this independently installed extension's origin.
+if (location.pathname === "/peer") {
+  document.documentElement.dataset.peerExtension = chrome.runtime.id;
+}

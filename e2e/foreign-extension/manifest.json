@@ -5,10 +5,29 @@
   "version": "1.0",
   "content_scripts": [
     {
-      "matches": ["http://127.0.0.1/*", "http://localhost/*"],
-      "js": ["inject.js"],
+      "matches": [
+        "http://127.0.0.1/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "inject.js"
+      ],
       "run_at": "document_idle"
     }
   ],
-  "web_accessible_resources": [{ "resources": ["frame.html"], "matches": ["<all_urls>"] }]
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "frame.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "permissions": [
+    "debugger",
+    "tabs",
+    "tabGroups"
+  ]
 }
