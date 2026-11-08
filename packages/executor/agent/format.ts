@@ -328,7 +328,7 @@ const CONTROL = new RegExp(
 );
 
 /** Text without terminal escape sequences or control characters other than tab and newline. */
-export function plain(text: string): string {
+function plain(text: string): string {
   return text.replace(CONTROL, "");
 }
 

@@ -55,7 +55,7 @@ Nothing listens on this computer, no `adb forward` is left behind and no port is
    (`adb pair`, then `adb connect`).
 3. Accept the phone's prompt to allow USB debugging from this computer.
 4. Open the browser on the phone. A browser serves DevTools only while it runs.
-5. Run `nds-browser-use phones`. It lists every phone with the browsers that serve DevTools, read
+5. Run `nddev-browseruse phones`. It lists every phone with the browsers that serve DevTools, read
    from `/proc/net/unix` and each socket's `/json/version`:
 
    ```json
@@ -64,7 +64,7 @@ Nothing listens on this computer, no `adb forward` is left behind and no port is
    ```
 
    A phone in the `unauthorized` state still waits for step 3.
-6. Run `nds-browser-use phone serve <serial>` and leave it running. It runs the host for that
+6. Run `nddev-browseruse phone serve <serial>` and leave it running. It runs the host for that
    phone, in its own runtime directory beside the desktop host's.
    - When the browser quits, Android stops it in the background, or the phone goes away, its
      sessions close, as they do when Chrome ends on the desktop. `phone serve` then waits for the
@@ -87,8 +87,8 @@ The ADB server is the one at `ADB_SERVER_SOCKET=tcp:<host>:<port>`. Without it, 
 phone's host. Everything else reads as on the desktop:
 
 ```sh
-nds-browser-use --phone R58M12345AB session new shop
-nds-browser-use --phone R58M12345AB -s shop -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
+nddev-browseruse --phone R58M12345AB session new shop
+nddev-browseruse --phone R58M12345AB -s shop -e 'state.page = await context.newPage(); await state.page.goto("https://example.com")'
 ```
 
 - **Tabs.** An agent sees only the tabs it opened and the pages those tabs opened. The owner's

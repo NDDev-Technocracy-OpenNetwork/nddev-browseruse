@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const HOST: &str = env!("CARGO_BIN_EXE_nds-browser-use");
+const HOST: &str = env!("CARGO_BIN_EXE_nddev-browseruse");
 const UNPACKED: &str = "chrome-extension://lcdkocghcaakekcaeopjanfbohpfacbk/";
 const FOREIGN: &str = "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/";
 
@@ -217,9 +217,7 @@ fn an_admitted_host_serves_owner_only_sockets_until_its_port_closes() {
 /// makes the agent client fail to read a reply it already sent.
 #[test]
 fn repeated_control_exchanges_all_reach_their_client() {
-    use nddev_device_sync_browser_use::{
-        BrowserUse, BrowserUseClient, CancellationToken, NativeIo,
-    };
+    use nddev_browseruse::{BrowserUse, BrowserUseClient, CancellationToken};
     let fixture = Fixture::new();
     fixture.install();
     let mut host = fixture.command(&[UNPACKED]).spawn().unwrap();
@@ -229,7 +227,7 @@ fn repeated_control_exchanges_all_reach_their_client() {
         .enable_all()
         .build()
         .unwrap();
-    let client = BrowserUseClient::new(NativeIo::new(1).unwrap().local_handle(), control).unwrap();
+    let client = BrowserUseClient::new(control).unwrap();
     let failures = runtime.block_on(async {
         let mut failures = Vec::new();
         for _ in 0..500 {

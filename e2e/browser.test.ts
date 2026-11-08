@@ -2661,5 +2661,5 @@ test("host telemetry is schema-valid and carries no page data", () => {
   ]) {
     expect(text).not.toContain(secret);
   }
-  for (const event of events) expect(event["service.name"]).toBe("nddev-device-sync-browser-use");
+  for (const event of events) expect(event["service.name"]).toBe("nddev-browseruse");
 });

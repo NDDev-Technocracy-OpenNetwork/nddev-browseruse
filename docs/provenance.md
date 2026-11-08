@@ -1,0 +1,18 @@
+# Code provenance
+
+This repository preserves the public history of
+[NDDev browser-use](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use)
+through `9089610bc7f50fd3daa9b57b5134b331f93414d5`. Original NDDev code is
+published here under Apache-2.0 by the owner's decision. Earlier revisions
+retain the license under which they were published.
+
+NOTICE retains the MIT license and attribution for adapted accessibility,
+capture, recording, audio, restoration and redaction code. Source annotations
+continue to identify those adaptations. The extension icons retain their
+design-system source manifest in `packages/desktop/extension/icons/source.json`.
+Dependency licenses are checked against the standalone locked graph.
+
+The native host name `ai.nddev.nds.browser_use`, existing Chrome extension IDs,
+local `nds-browser-use` data namespace and `NDS.*` private protocol methods are
+compatibility identities, not runtime dependencies on NDS. Their preservation
+avoids disconnecting an existing browser or silently discarding preferences.

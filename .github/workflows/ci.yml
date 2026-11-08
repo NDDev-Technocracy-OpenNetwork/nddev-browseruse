@@ -1,0 +1,25 @@
+name: check
+
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    uses: NDDev-Technocracy-OpenNetwork/nddev-ci/.github/workflows/check.yml@970f80da04582ef8e016b5091fa9510ff2f44d8a
+    permissions:
+      contents: read
+    with:
+      setup: true
+      timeout-minutes: 60
+      fetch-depth: 0

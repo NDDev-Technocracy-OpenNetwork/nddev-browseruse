@@ -188,7 +188,7 @@ pub fn install(
     }
     let manifest = HostManifest {
         name: NATIVE_HOST,
-        description: "NDDev OpenNetwork NDS browser-use host",
+        description: "nddev-browseruse local host",
         path: host,
         r#type: "stdio",
         allowed_origins: origins(),
@@ -222,6 +222,7 @@ pub fn load() -> Result<Config, IoError> {
     let config: HostConfig =
         serde_json::from_slice(&bytes).map_err(|_| IoError::InvalidConfiguration)?;
     Ok(Config {
+        diagnostics: crate::diagnostics::Policy::default(),
         runtime: runtime::directory()?,
         bun: config.bun,
         executor: config.executor,

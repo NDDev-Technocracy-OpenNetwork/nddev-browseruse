@@ -3,38 +3,13 @@
 //! a change, so each executor collects exactly what the profile allows.
 
 use super::{Host, State};
+pub(super) use crate::diagnostics::Observation;
 use serde_json::{Value, json};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum Observation {
-    Full,
-    /// Also what an extension that names no profile gets.
-    #[default]
-    Standard,
-    Off,
-}
-
-impl Observation {
-    pub(crate) fn parse(value: &Value) -> Self {
-        match value.as_str() {
-            Some("full") => Self::Full,
-            Some("off") => Self::Off,
-            _ => Self::Standard,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Full => "full",
-            Self::Standard => "standard",
-            Self::Off => "off",
-        }
-    }
-}
 
 impl Host {
     /// Applies the profile the extension reports and tells the executors' browser sessions.
     pub(super) fn observe(&self, profile: Observation) {
+        self.config.diagnostics.set(profile);
         let mut state = self.state();
         if state.observation == profile {
             return;

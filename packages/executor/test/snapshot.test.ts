@@ -140,6 +140,7 @@ test("the CDP session is detached whichever setup step fails", async () => {
   for (const failing of ["DOM.enable", "Page.getFrameTree", "DOM.getFlattenedDocument"]) {
     const { page, detached } = fixture(failing);
     const frame = failing === "Page.getFrameTree" ? child(page) : undefined;
+    // oxlint-disable-next-line typescript/await-thenable -- Bun types return void here; retain its documented async rejection assertion.
     await expect(getAriaSnapshot({ page, frame })).rejects.toThrow();
     expect(detached()).toBe(1);
   }

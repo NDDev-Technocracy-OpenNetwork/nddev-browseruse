@@ -18,6 +18,11 @@ pub(crate) async fn accept(listener: &Listener) -> io::Result<Stream> {
     listener.accept().await.map(|(stream, _)| stream)
 }
 
+#[cfg(unix)]
+pub(crate) async fn connect(path: &Path) -> io::Result<Stream> {
+    Stream::connect(path).await
+}
+
 /// Whether a host already answers on `path`.
 #[cfg(unix)]
 pub(crate) fn answers(path: &Path) -> bool {
@@ -44,6 +49,29 @@ pub(crate) fn bind(path: &Path) -> io::Result<Listener> {
 pub(crate) async fn accept(listener: &Listener) -> io::Result<Stream> {
     let (stream, _) = listener.0.read_with(|listener| listener.accept()).await?;
     async_io::Async::new(stream).map(Stream)
+}
+
+#[cfg(windows)]
+pub(crate) async fn connect(path: &Path) -> io::Result<Stream> {
+    let socket = unix_socket()?;
+    socket.set_nonblocking(true)?;
+    let connected = socket.connect(&socket2::SockAddr::unix(path)?);
+    let socket = async_io::Async::new(socket)?;
+    if let Err(error) = connected {
+        // Winsock's nonblocking connect may report WSAEWOULDBLOCK or WSAEINPROGRESS.
+        const WSAEWOULDBLOCK: i32 = 10035;
+        const WSAEINPROGRESS: i32 = 10036;
+        if error.kind() != io::ErrorKind::WouldBlock
+            && !matches!(error.raw_os_error(), Some(WSAEWOULDBLOCK | WSAEINPROGRESS))
+        {
+            return Err(error);
+        }
+        socket.writable().await?;
+        if let Some(error) = socket.get_ref().take_error()? {
+            return Err(error);
+        }
+    }
+    Ok(Stream(socket))
 }
 
 #[cfg(windows)]

@@ -1,0 +1,42 @@
+name: native
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3
+        with:
+          just-version: '1.59.0'
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .tools
+          key: tools-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'tools/**', 'package.json') }}
+          restore-keys: tools-${{ runner.os }}-
+      - name: Prepare pinned dependencies
+        run: just setup
+      - name: Native and isolated browser acceptance
+        env:
+          NDS_E2E_DIAGNOSTICS: '1'
+        run: just verify

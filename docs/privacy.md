@@ -1,133 +1,142 @@
-# Privacy policy: NDDev OpenNetwork NDS browser-use
+# Privacy policy: nddev-browseruse
 
-Applies to the browser extension "NDDev OpenNetwork NDS browser-use" and to the NDS host it talks
-to. [Русская версия ниже](#политика-конфиденциальности-nddev-opennetwork-nds-browser-use).
+This policy covers the nddev-browseruse Chromium extension and its local host.
+The standalone extraction is a release candidate under qualification.
+[Русская версия ниже](#политика-конфиденциальности-nddev-browseruse).
 
-## What it does
+## Browser access
 
-The extension lets AI agents that **you** run on your own device work in your browser. Agents get
-only the tabs in their own tab groups. Your other tabs stay out of their reach. The extension does
-nothing until the NDS host, a program installed on the same device, connects to it.
+The extension connects to a host installed on the same device through native
+messaging. Agents you run use that host to control their own tab groups. They
+can read page text, DOM, URLs, network activity and console messages; click,
+type, navigate, download files, take screenshots and make recordings in those
+tabs. Moving a tab into an agent group grants the agent access to that tab.
+The extension does not attach its debugger to tabs outside agent groups.
 
-## What it accesses
+Downloads initiated by agent tabs are copied to their session area. Only after
+the copy succeeds does the extension remove that download's browser copy and
+history entry. Other downloads are not processed. Explicit recordings can
+contain screen content, your actions and audio when requested.
 
-- **Tabs in agent tab groups.** Here the extension attaches Chrome's debugger. It reads and changes
-  pages only when an agent asks it to, for example to read text, click, fill a form or take a
-  screenshot. It never attaches to a tab outside an agent group.
-- **Downloads started by agent tabs.** The NDS host moves each such file into the agent's session.
-  The extension then removes that one download from your download folder and list. It never reads,
-  changes or removes any other download.
-- **Your own actions, only when you press "Record what I do".** Your clicks, typing and navigations
-  in that agent tab are recorded, so the agent can learn a task. Recording stops when you press
-  "Stop recording".
-- **Settings.** The extension stores in the browser: agent control on or off, the observation
-  profile, your private sites and the popup language.
+The extension stores preferences locally, including access, observation,
+language, private-site rules and group membership. The host stores its local
+configuration, session artifacts and any activity journal separately.
 
-## Where the data goes
+## Observation and storage
 
-- **Only to the NDS host on the same device**, through Chrome's native messaging. The extension
-  sends nothing to NDDev, to any server or to any third party. It has no analytics and no ads, and it
-  never sells or shares data.
-- **The host gives results to the agent that asked for them.** Screenshots, downloads and
-  recordings stay in that agent's session, on this device, and are deleted with the session.
-- **The host keeps an activity journal of agent tabs on this device**, depending on the
-  observation profile you choose in the popup:
-  - **Full:** agent actions, pages, network requests and console errors, with secrets removed.
-  - **Standard:** only names, timings and outcomes, with no page content.
-  - **Off:** nothing.
+- **Full** keeps a local activity journal: execution code and results, browser
+  actions, navigations, selected network metadata and textual bodies, warnings,
+  errors, dialogs and downloads. Recognized credentials and secret fields are
+  redacted before records are written. Redaction does not make arbitrary page
+  content non-sensitive. Journals have size limits and one-week retention.
+- **Standard** keeps event names, counts, durations, outcomes and error classes.
+  Operational metadata has no URL, title, code or page-content fields.
+- **Off** stops new observation collection and invalidates queued records.
+  Re-enabling observation does not replay records from the earlier policy.
+  Off does not erase records or artifacts already saved.
+- **Private sites**, including their subdomains, are omitted from journal
+  content. Minimal activity metadata can remain. This setting does not remove
+  the agent's permission to work on those sites or delete earlier records.
 
-  The journal is kept for one week and has a size limit. Sites you mark as private keep no content
-  in it.
-- **The host's telemetry** carries event names, outcomes and durations, never URLs or page content.
-  It stays on this device, unless you connect the device to your own NDS observability.
+Recordings and requested downloads/screenshots are task artifacts. They have
+separate explicit lifecycles; they are not ordinary metadata diagnostics.
+The local host writes metadata diagnostics to stderr and does not automatically
+export them to a vendor service. Removing the extension deletes its preferences,
+not the host's configuration, journal or artifacts. Remove those state files
+separately when you want to erase them.
 
-## The agents you run
+## Where data goes
 
-The agents are your choice, not part of the extension. What an agent reads in its tabs goes to
-that agent. If you run an agent that uses an online AI service, that service's privacy policy
-applies to what the agent sends it. Give agent groups only the sites you are willing to share
-with the agent.
+The extension sends browser data to the local host. It has no vendor cloud
+relay or built-in AI provider. The agent receives the results it requests.
+If your agent uses an online model, the data it sends is covered by that
+provider's terms and privacy policy.
 
-## Your control
+Optional remote-device use invokes a CLI through your configured SSH or command
+transport. Optional Android use connects through your ADB server. Agents can
+retrieve results and artifacts through those owner-configured paths. An NDS
+integration can compose its own observation transport and consent; the
+standalone product includes no NDS telemetry SDK or automatic central exporter.
 
-- **The popup's switch** stops all agents at once and releases their tabs.
-- **The observation profile** decides what the journal keeps, and **Off** stops collection.
-- **Private sites** keep their content out of the journal, while agents still work there.
-- **Uninstalling the extension** removes its settings. The host's data lives in its state
-  directory on your device. Uninstall the host to remove it.
+## Your controls
 
-## Contact
+The access switch stops agent control and drains sessions. Observation controls
+what new diagnostic data is retained; private-site rules restrict journal
+content. Stop an explicit recording to end that recording. Before granting a
+tab, consider which data the agent and its model provider may receive.
 
-Questions and requests go to
-[GitHub issues](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use/issues).
-Report security problems as described in [SECURITY.md](../SECURITY.md). Changes to this policy appear
-in this file's history.
+For privacy questions contact [danil@nddev.ai](mailto:danil@nddev.ai).
+Report non-sensitive defects in [GitHub issues](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/issues)
+and vulnerabilities as described in [SECURITY.md](../SECURITY.md). Policy changes
+are visible in this file's public history.
 
----
+# Политика конфиденциальности nddev-browseruse
 
-# Политика конфиденциальности NDDev OpenNetwork NDS browser-use
+Политика относится к расширению nddev-browseruse для Chromium и его локальному
+хосту. Самостоятельная реализация пока проходит проверку перед выпуском.
 
-Распространяется на расширение браузера «NDDev OpenNetwork NDS browser-use» и на хост NDS, с
-которым оно работает.
+## Доступ к браузеру
 
-## Что оно делает
+Расширение связывается через native messaging с хостом на том же устройстве.
+Агенты, которых вы запускаете, управляют своими группами вкладок: читают текст,
+DOM, адреса, сетевую активность и сообщения консоли, нажимают элементы, вводят
+текст, переходят по ссылкам, скачивают файлы, делают снимки и записи.
+Перемещая вкладку в группу агента, вы предоставляете ему доступ к ней.
+Расширение не подключает отладчик к вкладкам вне групп агентов.
 
-Расширение позволяет ИИ-агентам, которых **вы** запускаете на своём устройстве, работать в вашем
-браузере. Агенты получают только вкладки из своих групп. Остальные вкладки для них недоступны. Пока
-к расширению не подключится хост NDS (программа, установленная на этом же устройстве), оно ничего
-не делает.
+Загрузки из вкладок агента копируются в каталог сессии. Только после успешного
+копирования расширение удаляет браузерную копию и запись этой загрузки.
+Другие загрузки оно не обрабатывает. Явно запрошенная запись может содержать
+изображение страницы, ваши действия и звук, если он был запрошен.
 
-## К чему у него есть доступ
+Расширение локально хранит настройки доступа, наблюдения, языка, приватных
+сайтов и групп. Хост отдельно хранит конфигурацию, артефакты и журнал активности.
 
-- **Вкладки из групп агентов.** К ним расширение подключает отладчик Chrome. Читает и меняет
-  страницы оно только по запросу агента, например чтобы прочитать текст, нажать кнопку, заполнить
-  форму или снять скриншот. К вкладкам вне групп агентов оно не подключается.
-- **Загрузки, начатые во вкладках агентов.** Хост NDS переносит каждый такой файл в сессию агента.
-  Затем расширение удаляет эту загрузку из вашей папки и списка загрузок. Другие загрузки оно не
-  читает, не меняет и не удаляет.
-- **Ваши собственные действия, только после кнопки «Записать мои действия».** Ваши щелчки, ввод и
-  переходы в этой вкладке агента записываются, чтобы агент научился задаче. Запись прекращается по
-  кнопке «Остановить запись».
-- **Настройки.** Расширение хранит в браузере: включено ли управление агентами, профиль наблюдения,
-  ваши приватные сайты и язык окна расширения.
+## Наблюдение и хранение
 
-## Куда идут данные
+- **Полное** сохраняет локальный журнал: код и результаты выполнения, действия,
+  переходы, выбранные сетевые данные и текстовые тела, предупреждения, ошибки,
+  диалоги и загрузки. Известные поля с учётными данными и секретами удаляются
+  перед записью. Произвольный текст страницы может оставаться чувствительным.
+  Журнал ограничен по размеру и хранится одну неделю.
+- **Стандарт** сохраняет названия событий, счётчики, длительности, результаты
+  и классы ошибок. Метаданные не содержат адресов, заголовков страниц, кода
+  или содержимого страниц.
+- **Выкл.** прекращает новый сбор и аннулирует очередь записей. Повторное
+  включение не выдаёт записи прежнего режима. Уже сохранённые записи и
+  артефакты при этом не удаляются.
+- **Приватные сайты** вместе с поддоменами не попадают в журнал своим
+  содержимым. Минимальные метаданные активности могут сохраняться. Настройка
+  не запрещает агенту работать на сайте и не удаляет прежние записи.
 
-- **Только хосту NDS на этом же устройстве**, через native messaging Chrome. Расширение ничего не
-  отправляет ни NDDev, ни на какой-либо сервер, ни третьим лицам. В нём нет аналитики и рекламы, и
-  оно никогда не продаёт и не передаёт данные.
-- **Хост отдаёт результаты тому агенту, который их запросил.** Скриншоты, загрузки и записи
-  остаются в сессии этого агента на этом устройстве и удаляются вместе с сессией.
-- **Хост ведёт на этом устройстве журнал действий во вкладках агентов**, в зависимости от профиля
-  наблюдения, выбранного в окне расширения:
-  - **«Полное»:** действия агентов, страницы, сетевые запросы и ошибки консоли, без секретов.
-  - **«Стандарт»:** только названия, длительности и итоги, без содержимого страниц.
-  - **«Выкл.»:** ничего.
+Явно запрошенные записи, загрузки и снимки — артефакты задачи со своим сроком
+жизни. Они отделены от диагностических метаданных. Хост пишет диагностику
+локально в stderr и автоматически не отправляет её сервису разработчика.
+Удаление расширения удаляет его настройки, но не конфигурацию, журнал и
+артефакты хоста. Для удаления этих данных отдельно удалите файлы состояния.
 
-  Журнал хранится одну неделю и ограничен по размеру. Для сайтов, отмеченных как приватные,
-  содержимое в нём не сохраняется.
-- **Телеметрия хоста** содержит названия событий, итоги и длительности и никогда не содержит URL или
-  содержимого страниц. Она остаётся на этом устройстве, если вы сами не подключите его к своей
-  системе наблюдения NDS.
+## Передача данных
 
-## Агенты, которых вы запускаете
+Расширение передаёт данные локальному хосту. Встроенного облачного ретранслятора
+и провайдера ИИ нет. Агент получает запрошенные результаты. Если он использует
+онлайн-модель, к отправленным ей данным применяются правила её провайдера.
 
-Агентов выбираете вы, они не входят в расширение. То, что агент читает в своих вкладках, получает
-этот агент. Если ваш агент пользуется онлайн-сервисом ИИ, к тому, что агент ему отправляет,
-применяется политика конфиденциальности этого сервиса. Открывайте в группах агентов только те сайты,
-которые готовы показать агенту.
+Необязательная работа с другим устройством запускает CLI через настроенный вами
+SSH или командный транспорт. Android подключается через ваш сервер ADB.
+Агенты могут получать результаты и артефакты по этим настроенным каналам.
+Интеграция NDS может отдельно подключить свой транспорт наблюдения и согласие
+на сбор. В самостоятельном продукте нет SDK телеметрии NDS и автоматического
+экспорта в центральную систему.
 
-## Ваш контроль
+## Ваши настройки
 
-- **Переключатель в окне расширения** сразу останавливает всех агентов и освобождает их вкладки.
-- **Профиль наблюдения** определяет, что хранит журнал, а **«Выкл.»** прекращает сбор.
-- **Приватные сайты** не попадают в журнал своим содержимым, хотя агенты продолжают там работать.
-- **Удаление расширения** удаляет его настройки. Данные хоста хранятся в его каталоге состояния на
-  вашем устройстве; чтобы удалить их, удалите хост.
+Переключатель доступа останавливает управление и завершает работу сессий.
+Профиль наблюдения определяет сохранение новых диагностических данных,
+а приватные сайты ограничивают содержимое журнала. Явную запись завершает
+кнопка остановки записи. Предоставляя вкладку агенту, учитывайте, какие данные
+могут получить он и провайдер его модели.
 
-## Связь
-
-Вопросы и запросы направляйте в
-[GitHub issues](https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use/issues).
-О проблемах безопасности сообщайте, как описано в [SECURITY.md](../SECURITY.md). Изменения этой политики
-видны в истории этого файла.
+По вопросам конфиденциальности пишите на [danil@nddev.ai](mailto:danil@nddev.ai).
+Обычные ошибки без приватных данных можно сообщать в
+[GitHub issues](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/issues),
+уязвимости — по [SECURITY.md](../SECURITY.md). Изменения политики видны в истории файла.

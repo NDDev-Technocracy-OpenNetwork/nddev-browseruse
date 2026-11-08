@@ -1,11 +1,11 @@
 {
-  "name": "@nddev/nds-browser-use",
+  "name": "@nddev/nddev-browseruse",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "check": "tsc -p tsconfig.extension.json --noEmit && tsc -p tsconfig.executor.json && tsc -p tsconfig.e2e.json && tsc -p tsconfig.unit.json && biome check packages e2e",
+    "check": "tsc -p tsconfig.extension.json --noEmit && tsc -p tsconfig.executor.json && tsc -p tsconfig.e2e.json && tsc -p tsconfig.unit.json && biome check packages e2e && oxlint --report-unused-disable-directives-severity error --type-aware --config .oxlintrc.json packages e2e && knip",
     "test": "bun test packages/desktop/extension/test packages/executor/test",
     "generate": "tsc -p tsconfig.extension.json",
     "check:generated": "tsc -p tsconfig.extension.json && git diff --exit-code -- packages/desktop/extension/background.js packages/desktop/extension/popup.js packages/desktop/extension/restore.js",
@@ -16,10 +16,13 @@
     "playwright-core": "1.64.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.3",
+    "@biomejs/biome": "2.6.4",
     "@types/bun": "1.4.4",
     "@types/chrome": "0.3.6",
     "@types/node": "26.6.5",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "oxlint": "1.91.0",
+    "oxlint-tsgolint": "7.0.2005",
+    "knip": "6.44.1"
   }
 }

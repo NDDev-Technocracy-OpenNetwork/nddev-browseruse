@@ -1,0 +1,15 @@
+[package]
+name = "nddev-browseruse-tools"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+serde_json = "=1.0.154"
+sha2 = "=0.11.1"
+toml = "=1.2.0"
+
+[lints.rust]
+unsafe_code = "forbid"

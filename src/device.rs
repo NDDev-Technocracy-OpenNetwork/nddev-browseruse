@@ -12,7 +12,7 @@ const NAME_LIMIT: usize = 32;
 const VALUE_LIMIT: usize = 256;
 const DEVICE_LIMIT: usize = 32;
 /// Where `just install` puts the CLI, relative to the remote user's home.
-const REMOTE_CLI: &str = ".local/share/nds-browser-use/bin/nds-browser-use";
+const REMOTE_CLI: &str = ".local/share/nddev-browseruse/bin/nddev-browseruse";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

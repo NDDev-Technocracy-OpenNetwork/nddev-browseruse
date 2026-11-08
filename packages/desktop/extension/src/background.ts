@@ -774,7 +774,7 @@ async function dispatch(message: Answered): Promise<unknown> {
         await Promise.allSettled(
           [...attached.values()]
             .filter((held) => earlier.has(held.life))
-            .map((held) => held.ending),
+            .flatMap((held) => (held.ending ? [held.ending] : [])),
         );
         if ([...attached.values()].some((held) => earlier.has(held.life))) {
           throw new Refusal("busy");

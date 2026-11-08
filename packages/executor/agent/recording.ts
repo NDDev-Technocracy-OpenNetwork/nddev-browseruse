@@ -25,7 +25,7 @@ export function executing(active: boolean): void {
   for (const handle of handles) handle.executed(start, Date.now());
 }
 
-export type RecordingOptions = {
+type RecordingOptions = {
   page: Page;
   outputPath: string;
   frameRate?: number | undefined;

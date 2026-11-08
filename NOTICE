@@ -1,3 +1,13 @@
+nddev-browseruse
+Copyright 2026 Danil Silantyev, NDDev
+https://nddev.ai
+Source: https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse
+
+The product was extracted from the NDDev browser automation implementation:
+https://github.com/NDDev-Technocracy-OpenNetwork-NDS/nddev-device-sync-browser-use
+Base: 9089610bc7f50fd3daa9b57b5134b331f93414d5
+Historical source revisions retain their original licenses.
+
 # Third-party notices
 
 Parts of the following files are adapted from software by Tommy D. Rossi, used under the MIT
