@@ -2,7 +2,8 @@ Candidate review: use source/version/checksums from PROVENANCE.json and STORE-TA
 
 Prerequisites: supported Chromium with debugger/tabGroups (minimum 125), the matching
 native packet, and Bun 1.4.4 installed from its official distribution. The Linux x64
-packet was exercised with sandboxed Chrome for Testing 158.0.8127.18 on Ubuntu.
+packet is exercised with sandboxed Chrome for Testing on Ubuntu; its exact tested
+browser version and source are recorded in the release receipt.
 Windows/macOS qualification is recorded separately in GitHub CI; do not substitute
 that evidence for an untested platform's downloadable native artifact.
 
@@ -19,7 +20,8 @@ that evidence for an untested platform's downloadable native artifact.
    compatibility and connected state. Missing/incompatible setup must keep control paused.
 5. Run nddev-browseruse skill, then status and session new review. Use synthetic data:
    nddev-browseruse -s review -e 'state.page = await context.newPage(); await state.page.goto("https://example.com"); return await state.page.title()'
-   Expected: an agent group named review and the page title; other tabs stay outside it.
+   Expected: an agent group named review, its service tab and the page title; other
+   tabs stay outside it. The service tab is not exposed to agent browser targets.
 6. Exercise reading, input, downloads and screenshots on a synthetic page. Move an
    owned tab out of the group; subsequent access must be refused. Do not use real secrets.
 7. Start workflow recording under Full, switch Off, then Full. The old recorder stays
@@ -27,6 +29,10 @@ that evidence for an untested platform's downloadable native artifact.
    workflow images. Off does not revoke explicit task artifacts or erase old files.
 8. nddev-browseruse session close review closes its owned tabs, drains its executor and
    removes its temporary artifacts. Other groups/profiles/sessions remain untouched.
+   Repeat with a new group and use its service tab to keep the pages: they become
+   ordinary ungrouped tabs. An idle group is removed after five minutes without agent
+   work; an executing command or a live recording protects it. Reading its dashboard
+   does not renew the idle lease. The dashboard hides its aggregate analytics under Off.
 9. Repeat native handshake and operations in actual Edge after its ID is assigned.
    Chrome acceptance does not count as Edge acceptance. This future step does not block
    preparation of the Edge packet and listing material.

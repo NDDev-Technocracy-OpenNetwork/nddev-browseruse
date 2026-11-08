@@ -1,15 +1,15 @@
-Official store documentation checked 2026-11-08:
+Official store documentation checked 2026-11-09:
 https://developer.chrome.com/docs/webstore/images
 https://developer.chrome.com/docs/webstore/cws-dashboard-listing
 https://developer.chrome.com/docs/webstore/cws-dashboard-privacy/
 https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements/
 https://learn.microsoft.com/en-us/microsoft-edge/extensions/publish/publish-extension
 
-Artwork: 1280x800 actual-popup compositions for both stores; Chrome small promo
+Artwork: 1280x800 actual-popup, consent and group-dashboard compositions for both stores; Chrome small promo
 440x280 and optional marquee 1400x560; 128x128 icon and 300x300 Edge logo.
 Input captures contain only isolated synthetic fixtures. Text around them is marketing
 copy, not an additional application screen. Source captures and their hashes are retained.
-Use the light actual popup as shown; no capture is redrawn or represented as an Edge test.
+Use the authentic light captures as shown; no capture is redrawn or represented as an Edge test.
 
 The exact canonical Apache DS release is in design-system.lock.json. The mark comes
 unchanged from that release at assets/nddev-mark.svg, SHA-256:
