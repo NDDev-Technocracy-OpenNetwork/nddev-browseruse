@@ -1,0 +1,65 @@
+Single purpose
+Allow user-selected AI agents to automate browser tabs the user shares with them,
+through a native host installed on the same device.
+
+contextMenus
+Pin a selected element in an agent-owned tab for the agent's next operation.
+
+debugger
+Relay supported Chrome DevTools Protocol operations for agent-owned tabs: page
+reading, navigation, input, screenshots, network and supported DevTools helpers.
+Ownership and document/session generations constrain commands. The user's other
+tabs are outside debugger automation. Document evaluation uses this documented API.
+
+downloads
+Identify downloads initiated by owned tabs and retain them in the agent's session.
+After a successful copy, remove that download's browser copy/history entry.
+Unrelated downloads are not copied or removed.
+
+nativeMessaging
+Exchange messages with the separately installed local host, ai.nddev.nds.browser_use.
+The compatibility identity remains unchanged. No debugging TCP listener is opened.
+
+notifications
+Notify the user about a CAPTCHA/sign-in check, a stopped session or missing setup.
+The extension does not solve verification challenges.
+
+scripting
+Run packaged, scoped element-pinning helpers in owned tabs and add/remove temporary
+USER-origin CSS for a screenshot of the exact owned document. This avoids modifying
+the page's inline styles/CSP. No downloaded script runs in the extension worker.
+
+storage
+Keep the user's access, consent, observation, private-site and language preferences
+and owned group mapping locally in the browser profile.
+
+tabGroups
+Create and identify each agent's visible group; revoke access when a tab leaves it.
+
+tabs
+Create/manage the agent's tabs and show the selected tab's ownership/private-site
+controls. Popup metadata for the selected tab is distinct from granting automation.
+
+webNavigation
+Track owned frame/document replacements and related popups so stale documents or
+unowned targets do not remain accessible through an earlier attachment.
+
+<all_urls>
+The user may share any supported website, including file pages if separately enabled
+in browser settings. There is no fixed domain list for agent tasks. Persistent
+owned groups and background screenshot/pinning helpers must continue beyond a single
+toolbar gesture; activeTab alone does not provide that scope. Chromium restricted
+pages remain restricted. Runtime ownership limits automation to shared tabs.
+
+Remote-code declaration / reviewer explanation
+Declare the externally supplied agent-code capability explicitly. Agent code runs
+in the separate local Bun executor and can invoke Runtime.evaluate and other CDP
+operations through chrome.debugger in owned tabs. The extension worker/popup,
+libraries, UI, fonts and fixed scripting helpers are packaged locally; they do not
+download scripts, import remote modules or evaluate code in the extension worker.
+For Chrome this use follows the documented Debugger API exception in the MV3 policy.
+Edge certification is separate: provide this full explanation rather than answering
+that the product has no external code. Reviewers must be able to inspect the whole
+automation path and native-host source. Approval is determined by each store.
+
+Verified against manifest 0.2.5 and the candidate source recorded in PROVENANCE.json.

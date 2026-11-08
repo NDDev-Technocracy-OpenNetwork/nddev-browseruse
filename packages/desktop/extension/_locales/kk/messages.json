@@ -229,5 +229,11 @@
   },
   "setupFailed": {
     "message": "Кеңейтім файлдары жоқ не оқылмайды. Кеңейтімді қайта жүктеңіз немесе қайта орнатыңыз."
+  },
+  "ageNow": {
+    "message": "қазір"
+  },
+  "ageUnit": {
+    "message": "{v1, number} {v2, select, second {с} minute {мин} hour {сағ} day {күн} other {}}"
   }
 }

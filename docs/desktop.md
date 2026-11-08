@@ -79,7 +79,9 @@ The installer delivers `common.toml` and `profile.toml` under the existing `nds-
 configuration namespace. Valid operator edits survive reinstallation. An invalid file stops
 installation/startup; it is never silently replaced with defaults. `config` validates a complete
 composition before writing and supports `--runtime-dir`, `--default-device`, `--default-phone`
-and `--adb-server`. Use an empty string to clear an override. OS `HOME`/XDG/LOCALAPPDATA locations
+and `--adb-server`. Use an empty string to clear runtime/device/phone overrides; ADB needs a
+valid endpoint. This command edits common-source fields; manually edit the profile if it owns
+the native values instead. OS `HOME`/XDG/LOCALAPPDATA locations
 remain platform conventions; application values no longer come from environment variables.
 
 Migrate `NDS_BROWSER_USE_RUNTIME_DIR`, `NDS_BROWSER_DEVICE`, `NDS_BROWSER_PHONE` to these fields
@@ -149,3 +151,11 @@ A partial directory retains INCOMPLETE.txt. A completed packet still has
 `qualified: false` until its acceptance evidence, store copy and owner-browser
 checks are complete. Edge's future assigned extension ID needs explicit native
 admission and browser acceptance before its listing can become operational.
+
+`just store-materials /absolute/isolated-captures /absolute/new/materials` prepares
+five localized listings, permission/privacy/reviewer field copy, 1280×800 actual-popup
+compositions, 440×280 promos, optional 1400×560 marquees and 128/300 px logos. Captures
+come from `NDS_E2E_SHOTS` on an isolated browser acceptance run. Rust owns the input
+bounds, copy, provenance and output hashes; a thin sandboxed browser renderer uses the
+canonical DS/font package and does not load network resources. Inspect the PNGs before
+marking the packet reviewed. Store acceptance remains each store's decision.

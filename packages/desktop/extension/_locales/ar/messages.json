@@ -229,5 +229,11 @@
   },
   "setupFailed": {
     "message": "ملفات الإضافة مفقودة أو غير قابلة للقراءة. أعد تحميل الإضافة أو تثبيتها."
+  },
+  "ageNow": {
+    "message": "الآن"
+  },
+  "ageUnit": {
+    "message": "{v1, number} {v2, select, second {ث} minute {د} hour {س} day {ي} other {}}"
   }
 }

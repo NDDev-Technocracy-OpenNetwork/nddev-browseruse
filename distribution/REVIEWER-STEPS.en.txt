@@ -1,0 +1,35 @@
+Candidate review: use source/version/checksums from PROVENANCE.json and STORE-TARGETS.json.
+
+Prerequisites: supported Chromium with debugger/tabGroups (minimum 125), the matching
+native packet, and Bun 1.4.4 installed from its official distribution. The Linux x64
+packet was exercised with sandboxed Chrome for Testing 158.0.8127.18 on Ubuntu.
+Windows/macOS qualification is recorded separately in GitHub CI; do not substitute
+that evidence for an untested platform's downloadable native artifact.
+
+1. With existing agent sessions finished, place the native packet in a stable path.
+   Run bin/nddev-browseruse --version and compare its full source commit.
+2. Register Chrome using absolute paths:
+   bin/nddev-browseruse install --browser chrome --bun /absolute/bun --executor /absolute/native-packet/executor/executor.ts
+   On Edge use --browser edge --extension-id <actual assigned runtime extension ID>.
+   Preserve existing extension IDs; the installer adds the explicit catalog admission.
+3. Install the store build, or load the packet's unpacked/ in an isolated developer
+   profile. The unpacked ID is lcdkocghcaakekcaeopjanfbohpfacbk. Store ZIPs omit its key.
+   Chrome updates existing item lpnfnhkdjamhnoknoohhmjfhhjkeofio. No Edge card exists yet.
+4. Open the popup, review the disclosure and choose observation. Confirm native-host
+   compatibility and connected state. Missing/incompatible setup must keep control paused.
+5. Run nddev-browseruse skill, then status and session new review. Use synthetic data:
+   nddev-browseruse -s review -e 'state.page = await context.newPage(); await state.page.goto("https://example.com"); return await state.page.title()'
+   Expected: an agent group named review and the page title; other tabs stay outside it.
+6. Exercise reading, input, downloads and screenshots on a synthetic page. Move an
+   owned tab out of the group; subsequent access must be refused. Do not use real secrets.
+7. Start workflow recording under Full, switch Off, then Full. The old recorder stays
+   stopped. Private sites exclude retained journal content; private frame trees omit
+   workflow images. Off does not revoke explicit task artifacts or erase old files.
+8. nddev-browseruse session close review closes its owned tabs, drains its executor and
+   removes its temporary artifacts. Other groups/profiles/sessions remain untouched.
+9. Repeat native handshake and operations in actual Edge after its ID is assigned.
+   Chrome acceptance does not count as Edge acceptance. This future step does not block
+   preparation of the Edge packet and listing material.
+
+The archive is prepared, not submitted. Final certification and owner-profile stall
+acceptance are separate from these isolated synthetic checks.

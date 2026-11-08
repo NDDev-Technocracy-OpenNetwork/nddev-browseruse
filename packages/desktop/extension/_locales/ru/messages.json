@@ -229,5 +229,11 @@
   },
   "setupFailed": {
     "message": "Файлы расширения отсутствуют или недоступны. Перезагрузите или переустановите расширение."
+  },
+  "ageNow": {
+    "message": "сейчас"
+  },
+  "ageUnit": {
+    "message": "{v1, number} {v2, select, second {с} minute {мин} hour {ч} day {д} other {}}"
   }
 }

@@ -355,8 +355,7 @@ function ago(at: unknown): string {
   const time = typeof at === "string" ? Date.parse(at) : Number.NaN;
   if (Number.isNaN(time)) return "";
   const seconds = Math.max(0, Math.round((Date.now() - time) / 1000));
-  if (seconds < 5)
-    return new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(0, "second");
+  if (seconds < 5) return t("ageNow");
   const [value, unit] =
     seconds < 60
       ? [seconds, "second"]
@@ -365,9 +364,7 @@ function ago(at: unknown): string {
         : seconds < 86_400
           ? [Math.round(seconds / 3600), "hour"]
           : [Math.round(seconds / 86_400), "day"];
-  return new Intl.NumberFormat(language, { style: "unit", unit, unitDisplay: "narrow" }).format(
-    value,
-  );
+  return t("ageUnit", value, unit);
 }
 
 // Playwright's own selector engines, as the recorder writes them, read as what the owner sees:
