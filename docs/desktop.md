@@ -79,7 +79,9 @@ The installer delivers `common.toml` and `profile.toml` under the existing `nds-
 configuration namespace. Valid operator edits survive reinstallation. An invalid file stops
 installation/startup; it is never silently replaced with defaults. `config` validates a complete
 composition before writing and supports `--runtime-dir`, `--default-device`, `--default-phone`
-and `--adb-server`. Use an empty string to clear an override. OS `HOME`/XDG/LOCALAPPDATA locations
+and `--adb-server`. Use an empty string to clear runtime/device/phone overrides; ADB needs a
+valid endpoint. This command edits common-source fields; manually edit the profile if it owns
+the native values instead. OS `HOME`/XDG/LOCALAPPDATA locations
 remain platform conventions; application values no longer come from environment variables.
 
 Migrate `NDS_BROWSER_USE_RUNTIME_DIR`, `NDS_BROWSER_DEVICE`, `NDS_BROWSER_PHONE` to these fields

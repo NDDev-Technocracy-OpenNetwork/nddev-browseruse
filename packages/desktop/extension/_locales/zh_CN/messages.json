@@ -229,5 +229,11 @@
   },
   "setupFailed": {
     "message": "扩展文件缺失或无法读取。请重新加载或重新安装扩展。"
+  },
+  "ageNow": {
+    "message": "现在"
+  },
+  "ageUnit": {
+    "message": "{v1, number}{v2, select, second {秒} minute {分} hour {时} day {天} other {}}"
   }
 }

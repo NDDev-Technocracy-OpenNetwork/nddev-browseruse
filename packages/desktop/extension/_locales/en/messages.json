@@ -229,5 +229,11 @@
   },
   "setupFailed": {
     "message": "Extension files are missing or unreadable. Reload or reinstall the extension."
+  },
+  "ageNow": {
+    "message": "now"
+  },
+  "ageUnit": {
+    "message": "{v1, number}{v2, select, second {s} minute {m} hour {h} day {d} other {}}"
   }
 }

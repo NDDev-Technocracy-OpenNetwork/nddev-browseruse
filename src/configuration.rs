@@ -165,11 +165,20 @@ fn configure_in(directory: &Path, values: &NativeOverrides) -> Result<(), IoErro
         ("defaultPhone", &values.default_phone),
     ] {
         if let Some(value) = value {
-            common["native"][name] = value.clone().into();
+            common
+                .get_mut("native")
+                .and_then(toml::Value::as_table_mut)
+                .ok_or(IoError::InvalidConfiguration)?
+                .insert(name.into(), value.clone().into());
         }
     }
     if let Some(value) = &values.adb_server {
-        common["native"]["adb"]["server"] = value.clone().into();
+        common
+            .get_mut("native")
+            .and_then(|native| native.get_mut("adb"))
+            .and_then(toml::Value::as_table_mut)
+            .ok_or(IoError::InvalidConfiguration)?
+            .insert("server".into(), value.clone().into());
     }
     let encoded = if values.is_empty() {
         original
@@ -318,5 +327,33 @@ mod tests {
             Err(IoError::InvalidConfiguration)
         );
         assert_eq!(read(directory.path()).unwrap().native.default_device, "lab");
+    }
+
+    #[test]
+    fn profile_owned_native_settings_are_refused_without_panicking_or_rewriting() {
+        let directory = private_fixture();
+        let mut common: toml::Value =
+            toml::from_str(include_str!("../config/common.toml")).unwrap();
+        let native = common.as_table_mut().unwrap().remove("native").unwrap();
+        let mut profile = toml::map::Map::new();
+        profile.insert("native".into(), native);
+        let common = toml::to_string(&common).unwrap();
+        let profile = toml::to_string(&profile).unwrap();
+        std::fs::write(directory.path().join("common.toml"), &common).unwrap();
+        std::fs::write(directory.path().join("profile.toml"), &profile).unwrap();
+        assert!(read(directory.path()).is_ok());
+        let values = NativeOverrides {
+            default_device: Some("lab".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            configure_in(directory.path(), &values),
+            Err(IoError::InvalidConfiguration)
+        );
+        assert_eq!(file(&directory.path().join("common.toml")).unwrap(), common);
+        assert_eq!(
+            file(&directory.path().join("profile.toml")).unwrap(),
+            profile
+        );
     }
 }
