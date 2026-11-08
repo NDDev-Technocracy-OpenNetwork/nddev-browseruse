@@ -84,7 +84,8 @@ fn execute() -> Result {
                     "warnings",
                 ],
             )?;
-            run("cargo", &["test", "--locked", "--workspace"])?;
+            run("cargo", &["nextest", "run", "--locked", "--workspace"])?;
+            run("cargo", &["test", "--locked", "--workspace", "--doc"])?;
             run(tool("bun"), &["run", "test"])
         }
         "generate" => generate(),

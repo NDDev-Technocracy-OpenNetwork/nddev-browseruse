@@ -7,12 +7,12 @@ license = "Apache-2.0"
 repository = "https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse"
 
 [target.'cfg(any(unix, windows))'.dependencies]
-tokio = { version = "1.54", features = ["net", "io-util"] }
+tokio = { workspace = true, features = ["net", "io-util"] }
 
 [target.'cfg(windows)'.dependencies]
-async-io = "2.6"
-futures-io = "0.3.34"
-socket2 = "0.6.5"
+async-io.workspace = true
+futures-io.workspace = true
+socket2.workspace = true
 
 [lints]
 workspace = true

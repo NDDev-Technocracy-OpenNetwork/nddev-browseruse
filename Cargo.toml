@@ -15,48 +15,74 @@ resolver = "3"
 [workspace.package]
 version = "0.2.7"
 
+[workspace.dependencies]
+nddev-browseruse-contract = { path = "crates/contract" }
+nddev-browseruse-client = { path = "crates/client" }
+nddev-browseruse-local-transport = { path = "crates/local-transport" }
+async-io = "=2.6.0"
+base64 = "=0.23.1"
+futures-io = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["sink", "std"] }
+getrandom = "=0.4.3"
+percent-encoding = "=2.3.2"
+regex = { version = "=1.13.1", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
+rustix = { version = "=1.1.6", features = ["process"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+sha2 = "=0.11.1"
+socket2 = "=0.6.5"
+tempfile = "=3.27.0"
+thiserror = "=2.0.21"
+tokio = "=1.54.1"
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["handshake"] }
+toml = "=1.2.0"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "std"] }
+utoipa = "=6.0.0"
+windows-registry = "=0.100.0"
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 unreachable_pub = "warn"
 
 [workspace.lints.clippy]
-all = "deny"
+all = { level = "deny", priority = -1 }
 
 [[bin]]
 name = "nddev-browseruse"
 path = "src/bin/nddev-browseruse.rs"
 
 [dependencies]
-base64 = "=0.23.1"
-toml = "=1.2.0"
-nddev-browseruse-contract = { path = "crates/contract" }
-nddev-browseruse-client = { path = "crates/client" }
-nddev-browseruse-local-transport = { path = "crates/local-transport" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
+base64.workspace = true
+toml.workspace = true
+nddev-browseruse-contract.workspace = true
+nddev-browseruse-client.workspace = true
+nddev-browseruse-local-transport.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [target.'cfg(any(unix, windows))'.dependencies]
-tracing = "0.1"
-tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "std"] }
-futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
-getrandom = "0.4"
-percent-encoding = "2.3"
-regex = { version = "1.13", default-features = false, features = ["std", "unicode-case", "unicode-perl"] }
-sha2 = "0.11"
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "signal", "sync", "time"] }
-tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+percent-encoding.workspace = true
+regex.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "process", "signal", "sync", "time"] }
+tokio-tungstenite.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1.1", features = ["process"] }
+rustix.workspace = true
 
 # Windows has AF_UNIX sockets but tokio does not drive them; async-io does, without unsafe code.
 [target.'cfg(windows)'.dependencies]
-windows-registry = "0.100"
+windows-registry.workspace = true
 
 [dev-dependencies]
-sha2 = "0.11"
-tempfile = "3"
+sha2.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

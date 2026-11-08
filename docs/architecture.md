@@ -36,8 +36,10 @@ The root package also offers the installed-configuration client constructor for 
 composition. All clients use the same contract and RPC implementation.
 
 The workspace manifest declares the component graph. `just check` rejects forbidden local
-dependency edges and missing shared safety/visibility lints. Compiler visibility keeps host
+dependency edges, non-inherited dependency versions and missing shared safety/visibility lints.
+One workspace table owns Rust versions and shared dependency configuration. Compiler visibility keeps host
 internals out of the public SDK. The runtime crates share one workspace release version.
+Native behavior tests run through nextest; documentation tests remain a separate Cargo pass.
 
 ## Session ownership
 

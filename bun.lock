@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@nddev/nds-browser-use",
+      "name": "@nddev/nddev-browseruse",
       "dependencies": {
         "@mdream/js": "2.0.3",
         "playwright-core": "1.64.1",

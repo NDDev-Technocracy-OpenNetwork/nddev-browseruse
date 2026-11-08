@@ -34,6 +34,9 @@ send what they read to their own model provider. Review the
 The standalone library initializes no telemetry subscriber and depends on no
 NDS runtime. Embedding systems use the independent client SDK and
 [public port](docs/integration.md); [architecture](docs/architecture.md) describes the boundaries.
+It follows the native-process application boundary for NDS's core-and-apps architecture:
+the versioned local RPC is the module window, while NDS retains its own module host,
+identity, storage and synchronization. The standalone executable composes the same engine.
 Android support connects through the owner's ADB server; it does not install a
 mobile browser extension. Credential custody and cloud relay are not implemented.
 

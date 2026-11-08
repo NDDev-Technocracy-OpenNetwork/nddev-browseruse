@@ -23,6 +23,9 @@ pub(super) fn check() -> Result {
     let members = workspace["workspace"]["members"]
         .as_array()
         .ok_or("missing workspace")?;
+    let shared = workspace["workspace"]["dependencies"]
+        .as_table()
+        .ok_or("missing shared dependency versions")?;
     if members.len() != COMPONENTS.len() - 1
         || members.iter().any(|member| {
             !COMPONENTS
@@ -45,12 +48,18 @@ pub(super) fn check() -> Result {
                 format!("{directory} must inherit workspace visibility and safety lints").into(),
             );
         }
-        dependencies(&manifest, &path, &root, allowed)?;
+        dependencies(&manifest, &path, &root, allowed, shared)?;
     }
     Ok(())
 }
 
-fn dependencies(value: &toml::Value, path: &Path, root: &Path, allowed: &[&str]) -> Result {
+fn dependencies(
+    value: &toml::Value,
+    path: &Path,
+    root: &Path,
+    allowed: &[&str],
+    shared: &toml::Table,
+) -> Result {
     let Some(table) = value.as_table() else {
         return Ok(());
     };
@@ -60,8 +69,18 @@ fn dependencies(value: &toml::Value, path: &Path, root: &Path, allowed: &[&str])
             "dependencies" | "dev-dependencies" | "build-dependencies"
         ) {
             for (name, dependency) in value.as_table().ok_or("invalid dependency table")? {
+                if dependency.get("workspace").and_then(toml::Value::as_bool) != Some(true)
+                    || dependency.get("version").is_some()
+                {
+                    return Err(format!(
+                        "{} dependency {name} must inherit its workspace version",
+                        path.display()
+                    )
+                    .into());
+                }
+                let dependency = shared.get(name).ok_or("missing shared dependency")?;
                 if let Some(relative) = dependency.get("path").and_then(toml::Value::as_str) {
-                    let target = path.join(relative).canonicalize()?;
+                    let target = root.join(relative).canonicalize()?;
                     if !allowed
                         .iter()
                         .any(|directory| root.join(directory) == target)
@@ -74,9 +93,42 @@ fn dependencies(value: &toml::Value, path: &Path, root: &Path, allowed: &[&str])
                     }
                 }
             }
-        } else {
-            dependencies(value, path, root, allowed)?;
+        } else if key != "workspace" {
+            dependencies(value, path, root, allowed, shared)?;
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inherited_dependencies_still_enforce_component_boundaries() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let shared: toml::Table = toml::from_str("engine = { path = '.' }").unwrap();
+        let client: toml::Value =
+            toml::from_str("[dependencies]\nengine.workspace = true").unwrap();
+        let error = dependencies(&client, &root, &root, &[], &shared).unwrap_err();
+        assert!(error.to_string().contains("forbidden component dependency"));
+    }
+
+    #[test]
+    fn members_cannot_select_their_own_dependency_versions() {
+        let member: toml::Value = toml::from_str("[dependencies]\nserde = '=1.0.229'").unwrap();
+        let error = dependencies(
+            &member,
+            Path::new("client"),
+            Path::new("."),
+            &[],
+            &toml::Table::new(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("must inherit"));
+    }
 }
