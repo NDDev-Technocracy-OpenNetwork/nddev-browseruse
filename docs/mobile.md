@@ -146,3 +146,6 @@ It was also checked live on an Android 16 emulator over the real ADB server.
   WebView's refusal to open a tab.
 
 Chrome itself has not been checked on a phone yet.
+
+Phone screenshots capture the rendered browser frame without injecting cosmetic
+styles into the document. The page's caret and scrollbars can remain visible.

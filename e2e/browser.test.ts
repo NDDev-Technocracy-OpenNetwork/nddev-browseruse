@@ -215,6 +215,17 @@ beforeAll(async () => {
     fetch(request) {
       requests += 1;
       const path = new URL(request.url).pathname;
+      if (path === "/strict-csp") {
+        return new Response(
+          "<!doctype html><title>Strict CSP</title><h1>Capture fixture</h1><button>Continue</button>",
+          {
+            headers: {
+              "content-type": "text/html",
+              "content-security-policy": "default-src 'none'; style-src 'none'; script-src 'none'",
+            },
+          },
+        );
+      }
       // Downloads: a file only the page's cookie opens, one behind a redirect to another site, and
       // one a form's POST answers.
       const attachment = (body: BodyInit, name: string) =>
@@ -1602,6 +1613,56 @@ test("a raw CDP session that enables Runtime learns the page's contexts", async 
   } finally {
     // A failure above must not leave this session's executor to the tests after it.
     await cli("session", "close", "runtime");
+  }
+});
+
+test("screenshots preserve strict CSP without injecting document styles", async () => {
+  await opened("csp");
+  try {
+    const openedPage = await run(
+      "csp",
+      `state.page = await context.newPage(); await state.page.goto("${origin}/strict-csp"); return true`,
+    );
+    expect(openedPage.body.value).toBe("true");
+    const page = await observed("/strict-csp");
+    expect(page).toBeDefined();
+    if (!page) throw new Error("CSP fixture did not open");
+    await page.evaluate(() => {
+      const violations: string[] = [];
+      Reflect.set(globalThis, "__captureCsp", violations);
+      addEventListener(
+        "securitypolicyviolation",
+        (event) =>
+          event instanceof SecurityPolicyViolationEvent &&
+          violations.push(event.effectiveDirective),
+      );
+    });
+    const captured = await run(
+      "csp",
+      `const cdp = await context.newCDPSession(state.page);
+      try { const raw = await cdp.send("Page.captureScreenshot"); const normal = await state.page.screenshot(); return raw.data.length > 32 && normal.length > 32; }
+      finally { await cdp.detach(); }`,
+    );
+    expect(captured.body.value).toBe("true");
+    const violations = await page.evaluate(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return Reflect.get(globalThis, "__captureCsp") as string[];
+    });
+    expect(violations).toEqual([]);
+    // Positive control: the site's policy still rejects a real inline stylesheet.
+    await page.evaluate(() => {
+      const style = document.createElement("style");
+      style.textContent = "body { color: red }";
+      document.head.append(style);
+    });
+    await page.waitForFunction(
+      () => (Reflect.get(globalThis, "__captureCsp") as string[]).length > 0,
+    );
+    expect(await page.evaluate(() => getComputedStyle(document.body).color)).not.toBe(
+      "rgb(255, 0, 0)",
+    );
+  } finally {
+    await cli("session", "close", "csp");
   }
 });
 
