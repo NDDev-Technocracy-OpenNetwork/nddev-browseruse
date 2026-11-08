@@ -278,8 +278,8 @@ fn unpack(input: &Path, output: &Path) -> Result {
 pub(super) fn prepare() -> Result {
     let root = std::env::current_dir()?;
     let workspace = tempfile::Builder::new()
-        .prefix("qualified-")
-        .tempdir_in(root.join(".tools"))?;
+        .prefix("nddev-browseruse-qualified-")
+        .tempdir()?;
     let packet = workspace.path().join("packet");
     fs::create_dir(&packet)?;
     let native = packet.join("Native");
@@ -301,7 +301,10 @@ pub(super) fn prepare() -> Result {
     let archive_path = workspace.path().join("qualified-linux.zip");
     archive(&packet, &archive_path)?;
     fs::create_dir_all(root.join("dist"))?;
-    fs::rename(archive_path, root.join("dist/qualified-linux.zip"))?;
+    let mut destination = tempfile::NamedTempFile::new_in(root.join("dist"))?;
+    std::io::copy(&mut File::open(archive_path)?, destination.as_file_mut())?;
+    destination.as_file().sync_all()?;
+    destination.persist(root.join("dist/qualified-linux.zip"))?;
     Ok(())
 }
 
