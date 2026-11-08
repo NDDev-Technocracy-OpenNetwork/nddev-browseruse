@@ -5,15 +5,13 @@
 // Playwright listener here changes a page's behavior: dialogs, which a listener would keep open,
 // are journaled by the host from the browser's own events.
 import type { BrowserContext, ConsoleMessage, Page, Request } from "playwright-core";
-import { hostCommand, observation, onObservation } from "./host";
+import { scope } from "../execution";
+import { ActivityBuffer } from "./activity-buffer";
+import { collectionEpoch, hostCommand, onObservation } from "./host";
+import { secretField } from "./secret-field";
+import { executorSettings } from "./settings";
 
-const BATCH = 32;
-// A batch of records with their envelope stays below 1 MiB, far within the host's command bound,
-// so a few large bodies never make one command heavy.
-const BATCH_BYTES = 900 * 1024;
-const SEND_MS = 250;
-// Bodies the host may keep: textual and at most this large.
-const BODY_BYTES = 256 * 1024;
+const limits = executorSettings.activity;
 const TEXTUAL = /json|text|xml|x-www-form-urlencoded|graphql|javascript/i;
 // Agent actions worth a record; helpers' own evaluations and waits are not actions.
 const ACTIONS = new Set([
@@ -45,52 +43,47 @@ type Raw = { [field: string]: unknown };
 
 let started = false;
 let exec: number | undefined;
-let queue: Raw[] = [];
-let queued = 0;
-let timer: ReturnType<typeof setTimeout> | undefined;
+let executionStamp: Stamp | undefined;
+const buffer = new ActivityBuffer(limits, (epoch, records, flush) =>
+  hostCommand("NDS.activity", { epoch, records, flush }),
+);
+type Stamp = { epoch: string; at: string; exec?: number };
+let networkTasks = 0;
+const secretTasks = new Set<Promise<void>>();
+const requests = new WeakMap<Request, Stamp>();
 const pages = new WeakMap<Page, number>();
 let nextPage = 0;
-const calls = new WeakMap<object, { at: number; record: Raw }>();
+const calls = new WeakMap<
+  object,
+  { at: number; record: Raw; stamp: Stamp; owner?: object | undefined; page?: Page | undefined }
+>();
 
-function collecting(): boolean {
-  return started && observation() === "full";
+/** Identity is captured before asynchronous work, together with its execution and time. */
+export function collectionStamp(): Stamp | undefined {
+  const epoch = started ? collectionEpoch() : undefined;
+  const operation = scope.getStore()?.id ?? exec;
+  return epoch
+    ? {
+        epoch,
+        at: new Date().toISOString(),
+        ...(operation === undefined ? {} : { exec: operation }),
+      }
+    : undefined;
 }
 
-/** Queues one raw record for the host, when the profile collects. */
-export function emit(record: Raw): void {
-  if (!collecting()) return;
-  let full: Raw = {
-    at: new Date().toISOString(),
-    ...(exec === undefined ? {} : { exec }),
-    ...record,
-  };
-  let size = Buffer.byteLength(JSON.stringify(full));
-  // A body that JSON escaping grows past a batch on its own is left out, as a large one is.
-  if (size > BATCH_BYTES && "body" in full) {
+export function emit(record: Raw, stamp = collectionStamp()): void {
+  if (!stamp || stamp.epoch !== collectionEpoch()) return;
+  const { epoch, ...identity } = stamp;
+  let full: Raw = { ...record, ...identity };
+  if (Buffer.byteLength(JSON.stringify(full)) > limits.batchBytes && "body" in full) {
     const { body: _, ...rest } = full;
     full = { ...rest, bodyOmitted: "too-large" };
-    size = Buffer.byteLength(JSON.stringify(full));
   }
-  if (size > BATCH_BYTES) return;
-  if (queued + size > BATCH_BYTES) void send(false);
-  queue.push(full);
-  queued += size;
-  if (queue.length >= BATCH) void send(false);
-  else timer ??= setTimeout(() => void send(false), SEND_MS);
+  buffer.offer(epoch, full);
 }
 
-async function send(flush: boolean): Promise<void> {
-  if (timer) clearTimeout(timer);
-  timer = undefined;
-  const records = queue;
-  queue = [];
-  queued = 0;
-  if (records.length > 0 || flush) await hostCommand("NDS.activity", { records, flush });
-}
-
-/** Sends everything queued at once and asks the host to write what it holds back. */
 export function flush(): Promise<void> {
-  return collecting() ? send(true) : Promise.resolve();
+  return buffer.flush();
 }
 
 /** The journal's number of a page, 0 for one it never saw. */
@@ -141,27 +134,30 @@ export function start(context: BrowserContext): void {
   started = true;
   namePages(context);
   // Off and standard collect nothing: records not yet sent are dropped.
-  onObservation((profile) => {
-    if (profile !== "full") queue = [];
-  });
-  context.on("close", () => void send(true));
+  buffer.setEpoch(collectionEpoch());
+  onObservation(() => buffer.setEpoch(collectionEpoch()));
+  context.on("close", () => buffer.setEpoch(undefined));
 }
 
 /** The execution the following records belong to, until the next one starts. */
 export function executing(id: number): void {
   exec = id;
+  executionStamp = collectionStamp();
 }
 
 /** One execution's end, sent at once with everything before it. */
-export async function execution(record: Raw): Promise<void> {
-  emit({ type: "execution", ...record });
-  if (collecting()) await send(true);
+export function execution(record: Raw): Promise<void> {
+  const stamp = executionStamp;
+  executionStamp = undefined;
+  if (stamp) emit({ type: "execution", ...record }, stamp);
+  return flush();
 }
 
 /** Playwright's instrumentation listener: the agent's actions with their raw values. */
 export const actions = {
   onApiCallBegin(zone: object, channel: { type: string; method: string; params?: Raw }): void {
-    if (!collecting() || !ACTIONS.has(channel.method)) return;
+    const stamp = collectionStamp();
+    if (!stamp || !ACTIONS.has(channel.method)) return;
     const params = channel.params ?? {};
     const value = ["value", "text"]
       .map((name) => params[name])
@@ -177,48 +173,109 @@ export const actions = {
       ...(typeof value === "string" ? { value } : {}),
       ...(Array.isArray(params.localPaths) ? { files: params.localPaths } : {}),
     };
-    calls.set(zone, { at: Date.now(), record });
+    calls.set(zone, { at: Date.now(), record, stamp, owner: (zone as Zone).owner, page });
   },
   onApiCallEnd(zone: object): void {
     const call = calls.get(zone);
     if (!call) return;
     calls.delete(zone);
     const error = (zone as { error?: Error }).error;
-    emit({ ...call.record, ms: Date.now() - call.at, ...(error ? { error: error.message } : {}) });
+    const record = {
+      ...call.record,
+      ms: Date.now() - call.at,
+      ...(error ? { error: error.message } : {}),
+    };
+    if (typeof call.record.value !== "string") {
+      emit(record, call.stamp);
+      return;
+    }
+    const owner = call.owner as { locator?: Page["locator"] } | undefined;
+    const target = typeof owner?.locator === "function" ? owner : call.page;
+    if (
+      !target?.locator ||
+      typeof call.record.locator !== "string" ||
+      networkTasks + secretTasks.size >= limits.networkTasks
+    ) {
+      emit({ ...record, secret: true }, call.stamp);
+      return;
+    }
+    const task = target
+      .locator(call.record.locator)
+      .first()
+      .evaluate(secretField, undefined, { timeout: executorSettings.recorder.secretTimeoutMs })
+      .catch(() => true)
+      .then((secret) => emit({ ...record, secret }, call.stamp));
+    secretTasks.add(task);
+    void task.finally(() => secretTasks.delete(task));
   },
 };
 
 async function network(page: Page, id: number, request: Request, failure?: string): Promise<void> {
-  if (!collecting()) return;
-  const response = failure ? null : await request.response().catch(() => null);
-  const type = response?.headers()["content-type"] ?? "";
-  const record: Raw = {
-    type: "network",
-    page: id,
-    pageUrl: page.url(),
-    method: request.method(),
-    url: request.url(),
-    resource: request.resourceType(),
-    status: response?.status() ?? 0,
-    ...(failure ? { failure } : {}),
-    ...(type ? { contentType: type } : {}),
-    headers: request.headers(),
-  };
-  const post = request.postData();
-  if (post !== null) {
-    record.postData = post;
-    record.requestType = request.headers()["content-type"] ?? "";
-  }
-  if (response && TEXTUAL.test(type) && request.resourceType() !== "document") {
-    if (Number(response.headers()["content-length"] ?? 0) > BODY_BYTES) {
-      record.bodyOmitted = "too-large";
-    } else {
-      const body = await response.text().catch(() => undefined);
-      if (body !== undefined && body.length <= BODY_BYTES) record.body = body;
-      else if (body !== undefined) record.bodyOmitted = "too-large";
+  const stamp = requests.get(request);
+  requests.delete(request);
+  if (
+    !stamp ||
+    stamp.epoch !== collectionEpoch() ||
+    networkTasks + secretTasks.size >= limits.networkTasks
+  )
+    return;
+  networkTasks++;
+  try {
+    const pageUrl = page.url();
+    const response = failure ? null : await request.response().catch(() => null);
+    if (stamp.epoch !== collectionEpoch()) return;
+    const type = response?.headers()["content-type"] ?? "";
+    const record: Raw = {
+      type: "network",
+      page: id,
+      pageUrl,
+      method: request.method(),
+      url: request.url(),
+      resource: request.resourceType(),
+      status: response?.status() ?? 0,
+      ...(failure ? { failure } : {}),
+      ...(type ? { contentType: type } : {}),
+      headers: request.headers(),
+    };
+    const requestHeaders = request.headers();
+    const requestLength = requestHeaders["content-length"];
+    if (
+      requestLength &&
+      /^\d+$/.test(requestLength) &&
+      Number(requestLength) <= limits.bodyBytes &&
+      !requestHeaders["transfer-encoding"] &&
+      !requestHeaders["content-encoding"]
+    ) {
+      const post = request.postData();
+      if (post !== null && Buffer.byteLength(post) <= limits.bodyBytes) {
+        record.postData = post;
+        record.requestType = requestHeaders["content-type"] ?? "";
+      }
     }
+    if (response && TEXTUAL.test(type) && request.resourceType() !== "document") {
+      const headers = response.headers();
+      const length = headers["content-length"];
+      const known =
+        length !== undefined && /^\d+$/.test(length) && Number.isSafeInteger(Number(length));
+      if (
+        !known ||
+        headers["transfer-encoding"] ||
+        response.fromServiceWorker() ||
+        (headers["content-encoding"] && headers["content-encoding"] !== "identity")
+      ) {
+        record.bodyOmitted = "unbounded";
+      } else if (Number(length) > limits.bodyBytes) {
+        record.bodyOmitted = "too-large";
+      } else if (stamp.epoch === collectionEpoch()) {
+        const body = await response.text().catch(() => undefined);
+        if (body !== undefined && Buffer.byteLength(body) <= limits.bodyBytes) record.body = body;
+        else if (body !== undefined) record.bodyOmitted = "too-large";
+      }
+    }
+    emit(record, stamp);
+  } finally {
+    networkTasks--;
   }
-  emit(record);
 }
 
 /** Collects one page's navigations, requests, console, errors, downloads and closing. */
@@ -240,6 +297,10 @@ export function attach(page: Page): void {
   page.on("download", (download) =>
     emit({ type: "download", page: id, url: download.url(), name: download.suggestedFilename() }),
   );
+  page.on("request", (request) => {
+    const stamp = collectionStamp();
+    if (stamp) requests.set(request, stamp);
+  });
   page.on("requestfinished", (request) => void network(page, id, request));
   page.on(
     "requestfailed",

@@ -250,7 +250,12 @@ let running: { id: number; abort: () => void } | undefined;
 
 async function run(request: Request): Promise<void> {
   const controller = new AbortController();
-  const execution: Execution = { signal: controller.signal, logs: [], withdraw: [] };
+  const execution: Execution = {
+    id: request.id,
+    signal: controller.signal,
+    logs: [],
+    withdraw: [],
+  };
   const budget = request.timeout_ms ?? 10_000;
   let answered = false;
   const started = Date.now();

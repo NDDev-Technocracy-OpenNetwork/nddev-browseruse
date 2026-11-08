@@ -349,6 +349,7 @@ impl Host {
                 .as_ref()
                 .is_some_and(|client| client.id == id)
         }) {
+            super::capture::revoke(session);
             session.client = None;
             session.aliases.clear();
             session.downloads = None;
@@ -499,6 +500,7 @@ impl Host {
             "NDS.observation" => Ok(self.observation()),
             "NDS.activity" => Ok(self.activity(project, &params).await),
             "NDS.recording" => Ok(self.recording(project, &params).await),
+            "NDS.capture" => Ok(self.capture(project, client, &params).await),
             "Target.setDiscoverTargets" => Ok(json!({})),
             "Target.setAutoAttach" => {
                 let mut state = self.state();
@@ -757,6 +759,7 @@ mod tests {
         state.sessions.insert(
             "nds".to_owned(),
             Session {
+                capture: None,
                 token: String::new(),
                 artifacts: std::path::PathBuf::new(),
                 client: None,

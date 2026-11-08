@@ -32,6 +32,9 @@ nddev-browseruse session close docs
 - Add `--device <name>` to run on another of the owner's computers, or `--phone <serial>` for
   the owner's phone, when the owner serves it.
 - Close the session when the task is done. That closes its tabs too.
+- Workflow recording needs the owner's Full observation choice. Off, Standard and changes to
+  private sites stop it; Full does not restart it. Images are not pixel-redacted. Export needed
+  frames before closing the session; `outputDir` stays within the session's artifacts.
 
 ## Rules
 

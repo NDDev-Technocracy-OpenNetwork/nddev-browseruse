@@ -29,7 +29,8 @@ impl Host {
         }
         // Off and standard collect no content: what the journals hold back is dropped.
         if profile != Observation::Full {
-            for session in state.sessions.values() {
+            for session in state.sessions.values_mut() {
+                super::capture::revoke(session);
                 if let Some(journal) = &session.journal {
                     journal
                         .lock()
@@ -38,15 +39,34 @@ impl Host {
                 }
             }
         }
-        notify(&mut state);
+        notify(&mut state, &self.config.diagnostics.epoch_token());
     }
 
     pub(super) fn observation(&self) -> Value {
-        json!({ "profile": self.state().observation.as_str() })
+        json!({ "profile": self.config.diagnostics.profile().as_str(), "epoch": self.config.diagnostics.epoch_token() })
+    }
+
+    pub(super) fn set_private(&self, sites: Vec<String>) {
+        let mut state = self.state();
+        if state.private_sites == sites {
+            return;
+        }
+        self.config.diagnostics.invalidate();
+        state.private_sites = sites;
+        let sites = state.private_sites.clone();
+        for session in state.sessions.values_mut() {
+            super::capture::revoke(session);
+            if let Some(journal) = &session.journal {
+                let mut writer = journal.lock().unwrap_or_else(|error| error.into_inner());
+                writer.discard();
+                writer.set_private(&sites);
+            }
+        }
+        notify(&mut state, &self.config.diagnostics.epoch_token());
     }
 }
 
-fn notify(state: &mut State) {
+fn notify(state: &mut State, epoch: &str) {
     let profile = state.observation.as_str();
     let targets: Vec<(String, String)> = state
         .sessions
@@ -58,7 +78,7 @@ fn notify(state: &mut State) {
         })
         .collect();
     for (project, alias) in targets {
-        let event = json!({ "method": "NDS.observation", "params": { "profile": profile }, "sessionId": alias });
+        let event = json!({ "method": "NDS.observation", "params": { "profile": profile, "epoch": epoch }, "sessionId": alias });
         super::deliver(state, &project, event);
     }
 }
@@ -148,41 +168,80 @@ impl Host {
     /// `NDS.activity { records, flush }`: the executor's raw records for the session's journal,
     /// kept only in the full profile. Writing happens off the async runtime.
     pub(super) async fn activity(&self, project: &str, params: &Value) -> Value {
-        let records: Vec<Value> = params["records"]
-            .as_array()
-            .map(|records| records.iter().take(256).cloned().collect())
-            .unwrap_or_default();
+        let policy = self.config.diagnostics.clone();
+        let Some(epoch) = policy
+            .content_epoch()
+            .filter(|epoch| params["epoch"].as_str() == Some(epoch.token().as_str()))
+        else {
+            return json!({ "kept": false, "reason": "policy_changed" });
+        };
+        let Some(records) = params["records"].as_array() else {
+            return json!({ "kept": false, "reason": "invalid_request" });
+        };
+        let limits = &self.config.executor_settings.activity;
+        if records.len() > limits.batch_records
+            || !crate::protocol::json_fits(records, limits.batch_bytes)
+        {
+            return json!({ "kept": false, "reason": "capacity" });
+        }
+        let records = records.clone();
         let flush = params["flush"].as_bool() == Some(true);
         let journal = {
             let mut state = self.state();
-            if state.observation != Observation::Full {
+            if state.observation != Observation::Full || !policy.accepts_content(epoch) {
                 return json!({ "kept": false });
             }
             let sites = state.private_sites.clone();
+            let life = state
+                .sessions
+                .get(project)
+                .filter(|session| !session.closing && !session.life.stop.is_cancelled())
+                .map(|session| session.life.clone());
+            let Some(life) = life else {
+                return json!({ "kept": false });
+            };
             if let Some(session) = state.sessions.get_mut(project) {
                 follow_recording(&mut session.recording, &records);
             }
             Self::open_journal(&mut state, &self.config.activity, project)
-                .map(|journal| (journal, sites))
+                .map(|journal| (journal, sites, life))
         };
-        let Some((journal, sites)) = journal else {
+        let Some((journal, sites, life)) = journal else {
             return json!({ "kept": false });
         };
-        let _ = tokio::task::spawn_blocking(move || {
+        let mut work = super::PendingWork::new(life.clone());
+        let kept = tokio::task::spawn_blocking(move || {
             let mut writer = journal.lock().unwrap_or_else(|error| error.into_inner());
-            writer.set_private(&sites);
-            let now = std::time::Instant::now();
-            for record in &records {
-                writer.ingest(record, now);
-            }
-            if flush {
-                writer.flush();
+            let kept = if policy.accepts_content(epoch) && !life.stop.is_cancelled() {
+                writer.scope(epoch.value());
+                writer.set_private(&sites);
+                let now = std::time::Instant::now();
+                for record in &records {
+                    if !policy.accepts_content(epoch) || life.stop.is_cancelled() {
+                        break;
+                    }
+                    writer.ingest(record, now);
+                }
+                if policy.accepts_content(epoch) && !life.stop.is_cancelled() {
+                    if flush {
+                        writer.flush();
+                    } else {
+                        writer.tick(now);
+                    }
+                    true
+                } else {
+                    writer.discard();
+                    false
+                }
             } else {
-                writer.tick(now);
-            }
+                false
+            };
+            work.settle();
+            kept
         })
-        .await;
-        json!({ "kept": true })
+        .await
+        .unwrap_or(false);
+        json!({ "kept": kept })
     }
 
     /// `NDS.recording { frame, words }`: the recorder's events or one event's frame for agent
@@ -241,15 +300,27 @@ impl Host {
         root: &std::path::Path,
         project: &str,
         records: &[Value],
+        policy: &crate::diagnostics::Policy,
     ) {
+        let Some(epoch) = policy.content_epoch() else {
+            return;
+        };
         if state.observation != Observation::Full {
             return;
         }
         let sites = state.private_sites.clone();
         if let Some(journal) = Self::open_journal(state, root, project) {
             let mut writer = journal.lock().unwrap_or_else(|error| error.into_inner());
+            if !policy.accepts_content(epoch) {
+                return;
+            }
+            writer.scope(epoch.value());
             writer.set_private(&sites);
             for record in records {
+                if !policy.accepts_content(epoch) {
+                    writer.discard();
+                    break;
+                }
                 writer.ingest(record, std::time::Instant::now());
             }
         }
@@ -285,11 +356,17 @@ impl Host {
             .filter_map(|session| session.journal.clone())
             .collect();
         let now = std::time::Instant::now();
+        let epoch = self.config.diagnostics.content_epoch();
         for journal in journals {
-            journal
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .tick(now);
+            let mut writer = journal.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some(epoch) =
+                epoch.filter(|epoch| self.config.diagnostics.accepts_content(*epoch))
+            {
+                writer.scope(epoch.value());
+                writer.tick(now);
+            } else {
+                writer.discard();
+            }
         }
     }
 }

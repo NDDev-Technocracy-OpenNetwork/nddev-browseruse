@@ -33,12 +33,16 @@ configuration, session artifacts and any activity journal separately.
   Operational metadata has no URL, title, code or page-content fields.
 - **Off** stops new observation collection and invalidates queued records.
   Re-enabling observation does not replay records from the earlier policy.
-  Off does not erase records or artifacts already saved.
+  Off stops the workflow recorder and does not erase records or artifacts already saved.
 - **Private sites**, including their subdomains, are omitted from journal
   content. Minimal activity metadata can remain. This setting does not remove
   the agent's permission to work on those sites or delete earlier records.
 
-Recordings and requested downloads/screenshots are task artifacts. They have
+Workflow recording saves page images as well as action records. Recognized textual
+secrets are redacted, but sensitive pixels in images are not masked. Images of
+private sites and their child frames are omitted from workflow recording.
+
+Separate explicit video recordings and requested downloads/screenshots are task artifacts. They have
 separate explicit lifecycles; they are not ordinary metadata diagnostics.
 The local host writes metadata diagnostics to stderr and does not automatically
 export them to a vendor service. Removing the extension deletes its preferences,
@@ -62,7 +66,8 @@ standalone product includes no NDS telemetry SDK or automatic central exporter.
 
 The access switch stops agent control and drains sessions. Observation controls
 what new diagnostic data is retained; private-site rules restrict journal
-content. Stop an explicit recording to end that recording. Before granting a
+content. Off and Standard stop workflow recording. Stop a separately requested video
+recording to end that task. Before granting a
 tab, consider which data the agent and its model provider may receive.
 
 For privacy questions contact [danil@nddev.ai](mailto:danil@nddev.ai).
@@ -104,7 +109,7 @@ DOM, адреса, сетевую активность и сообщения к�
   или содержимого страниц.
 - **Выкл.** прекращает новый сбор и аннулирует очередь записей. Повторное
   включение не выдаёт записи прежнего режима. Уже сохранённые записи и
-  артефакты при этом не удаляются.
+  артефакты при этом не удаляются. Запись действий останавливается.
 - **Приватные сайты** вместе с поддоменами не попадают в журнал своим
   содержимым. Минимальные метаданные активности могут сохраняться. Настройка
   не запрещает агенту работать на сайте и не удаляет прежние записи.
@@ -114,6 +119,11 @@ DOM, адреса, сетевую активность и сообщения к�
 локально в stderr и автоматически не отправляет её сервису разработчика.
 Удаление расширения удаляет его настройки, но не конфигурацию, журнал и
 артефакты хоста. Для удаления этих данных отдельно удалите файлы состояния.
+
+Запись действий сохраняет изображения страниц. Текстовые секреты удаляются
+по распознаваемым признакам; чувствительные области изображений не скрываются.
+Кадры с приватными сайтами, включая вложенные фреймы, не сохраняются
+записью действий.
 
 ## Передача данных
 
@@ -132,8 +142,8 @@ SSH или командный транспорт. Android подключаетс
 
 Переключатель доступа останавливает управление и завершает работу сессий.
 Профиль наблюдения определяет сохранение новых диагностических данных,
-а приватные сайты ограничивают содержимое журнала. Явную запись завершает
-кнопка остановки записи. Предоставляя вкладку агенту, учитывайте, какие данные
+а приватные сайты ограничивают содержимое журнала. Off и стандартный профиль останавливают запись действий.
+Отдельно запрошенную видеозапись завершает её команда остановки. Предоставляя вкладку агенту, учитывайте, какие данные
 могут получить он и провайдер его модели.
 
 По вопросам конфиденциальности пишите на [danil@nddev.ai](mailto:danil@nddev.ai).

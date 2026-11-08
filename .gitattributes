@@ -13,3 +13,6 @@ packages/desktop/extension/public-settings.json linguist-generated
 packages/desktop/extension/licenses/npm/** -text -whitespace linguist-generated
 packages/desktop/extension/vendor/** -text -whitespace linguist-vendored
 contracts/openapi.json linguist-generated
+
+packages/executor/generated/** linguist-generated
+packages/executor/settings.json linguist-generated

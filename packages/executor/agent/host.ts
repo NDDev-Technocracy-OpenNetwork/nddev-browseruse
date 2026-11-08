@@ -7,15 +7,24 @@ export type Observation = "full" | "standard" | "off";
 
 let session: Promise<CDPSession | undefined> | undefined;
 let current: Observation = "standard";
+let epoch: string | undefined;
 const listeners = new Set<(profile: Observation) => void>();
 
 function parse(value: unknown): Observation {
   return value === "full" || value === "off" ? value : "standard";
 }
 
-function set(profile: Observation): void {
-  if (profile === current) return;
+function set(value: { profile?: unknown; epoch?: unknown } | undefined): void {
+  const token =
+    typeof value?.epoch === "string" && /^[0-9a-f]{16}$/.test(value.epoch)
+      ? value.epoch
+      : undefined;
+  let profile = parse(value?.profile);
+  // An older host cannot revoke already-running work, so never collect through it.
+  if (profile === "full" && !token) profile = "standard";
+  if (profile === current && token === epoch) return;
   current = profile;
+  epoch = token;
   for (const listener of listeners) listener(profile);
 }
 
@@ -26,11 +35,15 @@ export function connect(browser: Browser): Promise<CDPSession | undefined> {
     .then(async (cdp) => {
       (
         cdp as unknown as {
-          on(event: string, listener: (params: { profile?: unknown }) => void): void;
+          on(
+            event: string,
+            listener: (params: { profile?: unknown; epoch?: unknown }) => void,
+          ): void;
         }
-      ).on("NDS.observation", (params) => set(parse(params?.profile)));
-      const answer = await ask<{ profile?: unknown }>(cdp, "NDS.observation", {});
-      set(parse(answer?.profile));
+      ).on("NDS.observation", set);
+      const answer = await ask<{ profile?: unknown; epoch?: unknown }>(cdp, "NDS.observation", {});
+      set(answer);
+      browser.on("disconnected", () => set({ profile: "off" }));
       return cdp;
     })
     .catch(() => undefined);
@@ -48,8 +61,9 @@ function ask<T>(cdp: CDPSession, method: string, params: object): Promise<T | un
   return send(method, params).catch(() => undefined);
 }
 
-export function observation(): Observation {
-  return current;
+/** Opaque host generation, valid only while Full remains unchanged. Never retain across awaits. */
+export function collectionEpoch(): string | undefined {
+  return current === "full" ? epoch : undefined;
 }
 
 /** Calls `listener` with every later profile. */

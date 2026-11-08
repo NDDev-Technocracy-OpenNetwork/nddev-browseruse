@@ -253,8 +253,12 @@ one exists.
     Each record's `seq` is its id.
   - **`await recorder.frame({ eventId, offset })`**, or `recorder frame <id> --offset 1000`, names
     the screenshot of that moment; an offset of 1000 shows the result of a click.
-  - A value typed into a password, one-time-code or card field is never kept.
-  - Copy frames out of `artifacts` before closing the session, or pass `outputDir`.
+  - Recognized password, one-time-code and payment fields are redacted in text records.
+    Images are not pixel-redacted. Private frame trees, including child frames, are omitted.
+  - Off, Standard and private-site changes stop this recorder. Full does not restart it.
+    Separately requested screenshots and `recording` videos remain operational artifacts.
+  - Copy frames out of `artifacts` before closing the session. `outputDir` can select a
+    subdirectory within this session's artifacts; it does not extend their lifetime.
 - **`getCDPSession({ page })`** gives raw CDP; `context.newCDPSession(page)` works too.
 - **`createDebugger({ cdp })`** sets breakpoints, steps, reads local variables and evaluates in a
   paused frame. Give it its own CDP session.

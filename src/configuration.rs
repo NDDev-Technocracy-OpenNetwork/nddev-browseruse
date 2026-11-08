@@ -1,7 +1,9 @@
 //! The single reader of installed application values. Installation delivers the source files;
 //! subsequent starts read them from disk, so valid operator edits need no binary rebuild.
 use crate::IoError;
-pub use nddev_browseruse_contract::{PhoneLimits, Settings};
+pub use nddev_browseruse_contract::{
+    ActivitySettings, ExecutorSettings, PhoneLimits, RecorderSettings, Settings,
+};
 use std::path::Path;
 
 fn file(path: &Path) -> Result<String, IoError> {

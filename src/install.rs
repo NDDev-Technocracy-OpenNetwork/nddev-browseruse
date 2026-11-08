@@ -223,6 +223,7 @@ pub fn load() -> Result<Config, IoError> {
     let config: HostConfig =
         serde_json::from_slice(&bytes).map_err(|_| IoError::InvalidConfiguration)?;
     Ok(Config {
+        executor_settings: crate::configuration::load()?.executor,
         diagnostics: crate::diagnostics::Policy::default(),
         runtime: runtime::directory()?,
         bun: config.bun,

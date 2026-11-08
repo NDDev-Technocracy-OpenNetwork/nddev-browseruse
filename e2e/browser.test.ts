@@ -85,6 +85,10 @@ let fixture: ReturnType<typeof Bun.serve>;
 let origin: string;
 let requests = 0;
 const served = { once: 0 };
+let delayedResponse: (() => void) | undefined;
+function releaseDelayedResponse(): void {
+  delayedResponse?.();
+}
 
 function required(name: string): string {
   const value = process.env[name];
@@ -214,6 +218,25 @@ async function ownerSwitch(enable: boolean): Promise<void> {
   await page.close();
 }
 
+async function privateSite(site: string, add: boolean): Promise<void> {
+  const page = await observer.newPage();
+  try {
+    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    const result = await page.evaluate(
+      ({ site, add }) =>
+        chrome.runtime.sendMessage({
+          type: "private",
+          action: add ? "add" : "remove",
+          site,
+        }),
+      { site, add },
+    );
+    expect(result.privateSites.includes(site)).toBe(add);
+  } finally {
+    await page.close();
+  }
+}
+
 beforeAll(async () => {
   fixture = Bun.serve({
     hostname: "127.0.0.1",
@@ -221,6 +244,11 @@ beforeAll(async () => {
     fetch(request) {
       requests += 1;
       const path = new URL(request.url).pathname;
+      if (path === "/api/revocation") {
+        return new Promise<Response>((resolve) => {
+          delayedResponse = () => resolve(Response.json({ note: "revoked-body-fixture" }));
+        });
+      }
       if (path === "/peer") {
         return new Response(
           `<!doctype html><title>Peer input fixture</title>${"<p>Scroll fixture</p>".repeat(180)}`,
@@ -2299,6 +2327,168 @@ test("the activity journal keeps what agents did and the popup's off stops it", 
   expect((await activity()).length).toBe(before);
   await observation("full");
   expect((await cli("status")).body.observation).toBe("full");
+});
+
+test("a response started before Off cannot be collected after Full is enabled again", async () => {
+  const project = "privacy-response";
+  await opened(project);
+  delayedResponse = undefined;
+  let pending: Promise<Result> | undefined;
+  try {
+    pending = run(
+      project,
+      `state.page = await context.newPage(); await state.page.goto("${origin}/record");
+      await state.page.evaluate(() => fetch('/api/revocation').then(r => r.json())); return 1`,
+    );
+    const deadline = Date.now() + 5000;
+    while (!delayedResponse && Date.now() < deadline) await Bun.sleep(25);
+    expect(delayedResponse).toBeDefined();
+    await observation("off");
+    await observation("full");
+    releaseDelayedResponse();
+    expect((await pending).body.failure).toBeNull();
+    expect(
+      (
+        await run(
+          project,
+          `const policySession = await context.browser().newBrowserCDPSession();
+      const policy = await policySession.send('NDS.observation');
+      if (policy.profile !== 'full') throw new Error('Full policy was not applied');
+      const collector = await importModule(${JSON.stringify(join(dirname(executorSource), "agent/host.ts"))});
+      if (collector.collectionEpoch() !== policy.epoch) throw new Error('collector policy differs from the host');
+      await state.page.evaluate(() => fetch('/api/journal').then(r => r.json())); return 2`,
+        )
+      ).body.failure,
+    ).toBeNull();
+    let records: Record<string, unknown>[] = [];
+    const collected = Date.now() + 10000;
+    do {
+      const result = await plain("-s", project, "activity", "--all", "--full");
+      records = result.stdout
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => JSON.parse(line));
+      if (
+        records.some(
+          (record) => record.type === "network" && String(record.url).includes("/api/journal"),
+        ) &&
+        records.some(
+          (record) => record.type === "execution" && String(record.code).includes("policySession"),
+        )
+      )
+        break;
+      await Bun.sleep(50);
+    } while (Date.now() < collected);
+    expect(
+      records.some(
+        (record) => record.type === "network" && String(record.url).includes("/api/journal"),
+      ),
+    ).toBe(true);
+    expect(
+      records.some(
+        (record) => record.type === "network" && String(record.url).includes("/api/revocation"),
+      ),
+    ).toBe(false);
+    // The old in-flight execution is revoked as a whole; only the new execution is retained.
+    expect(records.filter((record) => record.type === "execution")).toHaveLength(1);
+  } finally {
+    releaseDelayedResponse();
+    await pending;
+    delayedResponse = undefined;
+    await observation("full");
+    await cli("session", "close", project, "--close-tabs");
+  }
+});
+
+test("workflow images exclude a private child frame and resume after it leaves", async () => {
+  const project = "privacy-images";
+  await privateSite("127.0.0.1", true);
+  await opened(project);
+  try {
+    const publicOrigin = origin.replace("127.0.0.1", "localhost");
+    const result = await run(
+      project,
+      `state.page = await context.newPage(); await state.page.goto("${publicOrigin}/record");
+      await state.page.evaluate(src => new Promise(resolve => { const frame = document.createElement('iframe');
+        frame.src = src; frame.onload = () => resolve(true); document.body.append(frame); }), "${origin}/inner");
+      return JSON.stringify(await recorder.start())`,
+    );
+    expect(result.body.failure).toBeNull();
+    const recording = JSON.parse(String(result.body.value)) as { path: string };
+    const directory = join(recording.path, "frames");
+    const frames = () => (existsSync(directory) ? readdirSync(directory).sort() : []);
+    await Bun.sleep(700);
+    expect(frames()).toEqual([]);
+    expect(
+      (
+        await run(
+          project,
+          "await state.page.locator('iframe').evaluate(frame => frame.remove()); return 1",
+        )
+      ).body.failure,
+    ).toBeNull();
+    const resumed = Date.now() + 5000;
+    while (!frames().length && Date.now() < resumed) await Bun.sleep(50);
+    expect(frames().length).toBeGreaterThan(0);
+    expect(
+      (await run(project, "return JSON.stringify(await recorder.stop())")).body.failure,
+    ).toBeNull();
+  } finally {
+    await privateSite("127.0.0.1", false);
+    await cli("session", "close", project, "--close-tabs");
+  }
+});
+
+test("Off revokes recorder capture and Full does not revive the old recording", async () => {
+  const project = "privacy-revocation";
+  await opened(project);
+  try {
+    const started = await run(
+      project,
+      `state.page = await context.newPage(); await state.page.goto("${origin}/record"); return JSON.stringify(await recorder.start())`,
+    );
+    expect(started.code).toBe(0);
+    const recording = JSON.parse(String(started.body.value)) as { id: string; path: string };
+    const directory = join(recording.path, "frames");
+    const frames = () => (existsSync(directory) ? readdirSync(directory).sort() : []);
+    const initial = Date.now() + 5000;
+    while (frames().length === 0 && Date.now() < initial) await Bun.sleep(50);
+    expect(frames().length).toBeGreaterThan(0);
+    await observation("off");
+    let status: unknown;
+    const stopped = Date.now() + 3000;
+    do {
+      status = JSON.parse(
+        String((await run(project, "return JSON.stringify(await recorder.status())")).body.value),
+      );
+      if (status === null) break;
+      await Bun.sleep(50);
+    } while (Date.now() < stopped);
+    expect(status === null, "recorder must stop after Off reaches the executor").toBe(true);
+    const before = frames();
+    expect(
+      (
+        await run(
+          project,
+          "await state.page.evaluate(() => { document.body.style.background = 'orange'; document.body.textContent = 'fixture changed while Off'; }); return 1",
+        )
+      ).code,
+    ).toBe(0);
+    await Bun.sleep(1100);
+    expect(frames()).toEqual(before);
+    await observation("full");
+    expect(
+      JSON.parse(
+        String((await run(project, "return JSON.stringify(await recorder.status())")).body.value),
+      ),
+    ).toBeNull();
+    await Bun.sleep(600);
+    expect(frames()).toEqual(before);
+  } finally {
+    await observation("full");
+    await cli("session", "close", project, "--close-tabs");
+  }
 });
 
 // The owner keeps a site private in the popup: agents still work there, the journal keeps that
