@@ -35,7 +35,9 @@ jobs:
           key: tools-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'tools/**', 'package.json') }}
           restore-keys: tools-${{ runner.os }}-
       - name: Prepare pinned dependencies
-        run: just setup
+        run: |
+          just setup
+          just setup
       - name: Native and isolated browser acceptance
         env:
           NDS_E2E_DIAGNOSTICS: '1'

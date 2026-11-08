@@ -269,13 +269,24 @@ fn setup() -> Result {
         serde_json::from_slice(&fs::read("tools/versions.json")?)?;
     for (name, value) in versions {
         let version = value.as_str().ok_or("invalid quality-tool version")?;
-        let expected = format!("{name} {version}");
+        let label = if name == "cargo-shear" {
+            "Version:"
+        } else {
+            &name
+        };
         if capture(tool(&name), &["--version"])
             .ok()
             .as_deref()
-            .is_some_and(|v| v.starts_with(&expected))
+            .is_some_and(|value| {
+                let mut fields = value.split_whitespace();
+                fields.next() == Some(label) && fields.next() == Some(version)
+            })
         {
             continue;
+        }
+        let installed = tool(&name);
+        if fs::symlink_metadata(&installed).is_ok() {
+            fs::remove_file(installed)?;
         }
         run(
             "cargo",
@@ -284,6 +295,7 @@ fn setup() -> Result {
                 "--locked",
                 "--root",
                 ".tools",
+                "--force",
                 "--version",
                 version,
                 &name,

@@ -73,3 +73,6 @@ unbash 6.0.3, serde_spanned 1.1.2 and toml_datetime 1.1.2+spec-1.1.0. Other lock
 unchanged. Lightning CSS remains an unchanged test-tool dependency, excluded from the shipped
 runtime and browser bundle. Setup now reuses a matching Bun on PATH before its separate native
 bootstrap, without writing through an old project symlink into the owner's runtime.
+Repeating setup exposed cargo-shear's different version-output label and an existing-binary
+update failure. Exact version tokens now handle that format, and mismatched tools are replaced
+inside the project without following external symlinks.
