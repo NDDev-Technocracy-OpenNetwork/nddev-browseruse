@@ -97,6 +97,32 @@ jobs:
               try { return await operation(); }
               catch (error) { if (error.status === 404) return null; throw error; }
             };
+            let release = await optional(() => github.rest.repos.getReleaseByTag({...context.repo, tag: plan.tag}));
+            if (!release) {
+              // The tag endpoint serves published releases. Reconcile an authorized draft through the list API.
+              const listed = await github.rest.repos.listReleases({...context.repo, per_page: 100});
+              const draft = listed.data.find(item => item.tag_name === plan.tag);
+              if (draft) release = {data: draft};
+            }
+            if (release?.data.draft && release.data.target_commitish !== plan.source) {
+              throw new Error('Draft belongs to another publication target');
+            }
+            if (!release || release.data.draft) {
+              const latest = await optional(() => github.rest.repos.getLatestRelease(context.repo));
+              const parts = value => {
+                const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(value);
+                if (!match) throw new Error('Expected an ordinary three-part release version');
+                const values = match.slice(1).map(Number);
+                if (!values.every(Number.isSafeInteger)) throw new Error('Release version exceeds its bound');
+                return values;
+              };
+              if (latest) {
+                const current = parts(latest.data.tag_name);
+                const target = parts(plan.version);
+                const index = current.findIndex((value, i) => value !== target[i]);
+                if (index >= 0 && current[index] > target[index]) throw new Error('A newer release already exists');
+              }
+            }
             let tag = await optional(() => github.rest.git.getRef({...context.repo, ref: `tags/${plan.tag}`}));
             if (tag) {
               let object = tag.data.object;
@@ -107,7 +133,6 @@ jobs:
             } else {
               await github.rest.git.createRef({...context.repo, ref: `refs/tags/${plan.tag}`, sha: plan.source});
             }
-            let release = await optional(() => github.rest.repos.getReleaseByTag({...context.repo, tag: plan.tag}));
             if (!release) {
               const generated = await github.rest.repos.generateReleaseNotes({
                 ...context.repo, tag_name: plan.tag, target_commitish: plan.source
@@ -134,7 +159,7 @@ jobs:
                 headers: {'content-type': asset.name.endsWith('.json') ? 'application/json' : 'application/octet-stream'}
               });
             }
-            const current = (await github.rest.repos.getReleaseByTag({...context.repo, tag: plan.tag})).data;
+            const current = (await github.rest.repos.getRelease({...context.repo, release_id: release.data.id})).data;
             if (current.assets.length !== plan.assets.length) throw new Error('Incomplete release');
             for (const asset of plan.assets) {
               const remote = current.assets.find(item => item.name === asset.name);

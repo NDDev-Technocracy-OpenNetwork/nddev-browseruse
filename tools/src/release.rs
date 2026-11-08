@@ -49,6 +49,9 @@ fn write(path: &Path, value: &Value) -> Result {
 }
 
 fn digest(path: &Path) -> Result<String> {
+    if fs::metadata(path)?.len() > 256 * 1024 * 1024 {
+        return Err("hashed release file exceeds its bound".into());
+    }
     Ok(Sha256::digest(fs::read(path)?)
         .iter()
         .map(|byte| format!("{byte:02x}"))
