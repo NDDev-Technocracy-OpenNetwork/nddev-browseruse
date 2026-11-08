@@ -39,6 +39,7 @@ pub struct Writer {
     sequence: u64,
     full: bool,
     held: Option<Held>,
+    epoch: Option<u64>,
     /// Values typed into fields that are no secret: aria snapshots may show them.
     typed: std::collections::HashSet<String>,
     /// The owner's private sites (hosts, with their subdomains): of them the journal keeps that
@@ -141,6 +142,7 @@ impl Writer {
             sequence: 0,
             full: false,
             held: None,
+            epoch: None,
             typed: std::collections::HashSet::new(),
             private: Vec::new(),
             page_hosts: std::collections::HashMap::new(),
@@ -279,6 +281,14 @@ impl Writer {
     /// Drops the record not yet written, as the off profile asks.
     pub fn discard(&mut self) {
         self.held = None;
+        self.epoch = None;
+    }
+
+    pub(crate) fn scope(&mut self, epoch: u64) {
+        if self.epoch != Some(epoch) {
+            self.discard();
+            self.epoch = Some(epoch);
+        }
     }
 
     /// The record the journal keeps of a raw one, and its folding key, or none for noise.
@@ -857,5 +867,25 @@ mod tests {
         writer.discard();
         writer.flush();
         assert!(lines(directory.path()).is_empty());
+    }
+    #[test]
+    fn a_new_collection_epoch_discards_the_record_held_for_folding() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut writer = Writer::new(directory.path(), "j.jsonl");
+        let now = Instant::now();
+        writer.scope(6);
+        writer.ingest(
+            &json!({ "type": "console", "level": "error", "text": "old generation" }),
+            now,
+        );
+        writer.scope(14);
+        writer.ingest(
+            &json!({ "type": "console", "level": "error", "text": "new generation" }),
+            now,
+        );
+        writer.flush();
+        let records = lines(directory.path());
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["text"], "new generation");
     }
 }

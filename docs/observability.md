@@ -116,3 +116,35 @@ Duplicates are folded:
 
 Every record, body and journal has a size bound. Bodies are kept for textual types only (JSON,
 text, XML, form, GraphQL).
+
+## Revoking in-flight collection
+
+The Rust host issues an opaque collection generation with `NDS.observation`.
+`NDS.activity` and `NDS.capture` must carry that generation. Changing away from
+Full or changing private-site rules invalidates it. A new Full profile gets a
+new generation. Requests and actions keep their original generation, execution
+and timestamp across asynchronous work. The host checks again inside the writer
+lock; the policy acknowledgement drains writes already in progress. Held journal
+records and unsent batches are discarded. Delivery failures are not replayed.
+
+The executor has one activity sender, bounded record/byte queues and bounded
+network lookups. Body capture requires a known size within the configured limit,
+no content encoding and no service worker response. Unknown-size, compressed and
+oversized responses retain metadata without reading a body for the journal.
+
+The workflow recorder (`recorder.start()` and the popup's Record control) writes
+images through `NDS.capture`; the executor never writes these image files itself.
+Each image is tied to the authorized tab's document generation. Any frame
+navigation invalidates it. The whole image is omitted if the authoritative frame
+tree contains a private site, including a private child frame. A new document
+requires a stopped/drained screencast stream and fresh authorization. Output
+stays below the session artifacts directory; existing files are never replaced.
+Recordings have duration, byte and queue limits. Off, Standard and private-site
+changes stop the current workflow recording; Full does not restart it.
+
+Recognized textual secrets are redacted in journal records. **Pixels in retained
+images are not masked.** Explicit screenshots and the separate `recording` video
+helper are requested operational artifacts; observation Off does not revoke the
+agent's access to them or erase existing files. Stop those explicit tasks to end
+them. This distinction also applies to private-site rules, which limit retained
+observation rather than the agent's permission to use a tab.

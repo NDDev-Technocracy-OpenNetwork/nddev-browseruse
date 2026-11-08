@@ -101,6 +101,16 @@ impl Fixture {
         std::fs::create_dir_all(&config).unwrap();
         let host = serde_json::json!({ "bun": HOST, "executor": executor });
         std::fs::write(config.join("host.json"), host.to_string()).unwrap();
+        std::fs::write(
+            config.join("common.toml"),
+            include_str!("../config/common.toml"),
+        )
+        .unwrap();
+        std::fs::write(
+            config.join("profile.toml"),
+            include_str!("../config/production.toml"),
+        )
+        .unwrap();
     }
 }
 

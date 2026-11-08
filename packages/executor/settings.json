@@ -1,0 +1,25 @@
+{
+  "activity": {
+    "batchRecords": 32,
+    "batchBytes": 921600,
+    "queueRecords": 256,
+    "queueBytes": 4194304,
+    "sendDelayMs": 250,
+    "bodyBytes": 262144,
+    "networkTasks": 32
+  },
+  "recorder": {
+    "frameIntervalMs": 500,
+    "frameBytes": 512000,
+    "maxBytes": 524288000,
+    "maxMs": 1200000,
+    "queuedFrames": 32,
+    "queuedBytes": 8388608,
+    "queuedEvents": 128,
+    "secretCache": 256,
+    "secretTimeoutMs": 2000,
+    "jpegQuality": 70,
+    "maxEdge": 1280,
+    "frameTargets": 32
+  }
+}

@@ -4,6 +4,28 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
+export type ActivitySettings = {
+    batchBytes: number;
+    /**
+     * Records and serialized bytes in one native activity command, per executor.
+     */
+    batchRecords: number;
+    /**
+     * Maximum safely sized, uncompressed HTTP body read for a journal record.
+     */
+    bodyBytes: number;
+    /**
+     * Concurrent metadata/body lookups; a slot stays held until the underlying call settles.
+     */
+    networkTasks: number;
+    queueBytes: number;
+    /**
+     * Total queued records/bytes, including a batch awaiting delivery; one sender at a time.
+     */
+    queueRecords: number;
+    sendDelayMs: number;
+};
+
 /**
  * Colors projected from the public DS for Chrome APIs that cannot accept CSS tokens.
  */
@@ -36,6 +58,52 @@ export type BrowserStatus = {
 export type Build = {
     commit: string;
     version: string;
+};
+
+export type CaptureFailure = 'policy_changed' | 'document_changed' | 'private_page' | 'capacity' | 'invalid_request' | 'unavailable' | 'stopped' | 'frame_limit' | 'target_closed';
+
+export type CaptureReply = {
+    bytes: number;
+    directory?: string | null;
+    error?: CaptureFailure | null;
+    frames: number;
+    kept: boolean;
+    scope?: string | null;
+};
+
+/**
+ * Private local operation data. Never implement Debug or send these fields to diagnostics.
+ */
+export type CaptureRequest = {
+    action: 'begin';
+    directory?: string | null;
+    epoch: string;
+    id: string;
+} | {
+    action: 'page';
+    epoch: string;
+    id: string;
+    page: number;
+    target: string;
+} | {
+    action: 'frame';
+    at: number;
+    data: string;
+    epoch: string;
+    id: string;
+    page: number;
+    scope: string;
+} | {
+    action: 'stop';
+    id: string;
+};
+
+/**
+ * Public to the local thin executor. Fixed for one host/executor lifetime; policy stays live.
+ */
+export type ExecutorSettings = {
+    activity: ActivitySettings;
+    recorder: RecorderSettings;
 };
 
 /**
@@ -103,4 +171,25 @@ export type OwnerRecording = {
     id?: string | null;
     message?: string | null;
     recording?: boolean | null;
+};
+
+export type RecorderSettings = {
+    frameBytes: number;
+    /**
+     * Milliseconds between retained frames, per page.
+     */
+    frameIntervalMs: number;
+    frameTargets: number;
+    jpegQuality: number;
+    /**
+     * One recording's total retained bytes and duration in milliseconds.
+     */
+    maxBytes: number;
+    maxEdge: number;
+    maxMs: number;
+    queuedBytes: number;
+    queuedEvents: number;
+    queuedFrames: number;
+    secretCache: number;
+    secretTimeoutMs: number;
 };

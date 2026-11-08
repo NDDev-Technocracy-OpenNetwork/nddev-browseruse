@@ -5,6 +5,7 @@
 //! executor stops, agent tabs are released by the extension and the private
 //! sockets are removed.
 
+mod capture;
 mod downloads;
 mod executor;
 mod observation;
@@ -56,6 +57,7 @@ const CDP_RELEASED: u8 = 2;
 
 /// Local installation paths; never operator credentials.
 pub struct Config {
+    pub executor_settings: crate::configuration::ExecutorSettings,
     pub diagnostics: crate::diagnostics::Policy,
     pub runtime: PathBuf,
     pub bun: PathBuf,
@@ -194,6 +196,7 @@ struct Session {
     /// The recorder's current recording, as its journal records report it: its id and the
     /// owner's actions so far. The popup reads it without running anything in the session.
     recording: Option<(String, u64)>,
+    capture: Option<Arc<Mutex<capture::Capture>>>,
 }
 
 struct Tab {
@@ -201,6 +204,7 @@ struct Tab {
     info: Value,
     target: String,
     document: Option<String>,
+    frames: capture::FrameScope,
 }
 
 /// The executor stays owned here even when a request future is dropped.
@@ -822,16 +826,11 @@ impl Host {
                 state.contract = message["contract"].as_u64();
                 state.downloads = message["downloads"].as_bool() == Some(true);
                 state.parts = message["parts"].as_bool() == Some(true);
-                state.private_sites = observation::sites(&message["private"]);
                 let profile = if state.contract == Some(CONTRACT) {
                     observation::Observation::parse(&message["observation"])
                 } else {
                     observation::Observation::Off
                 };
-                self.config.diagnostics.set(profile);
-                if first {
-                    tracing::info!(event.name = "browser.host.started", outcome = "ready");
-                }
                 state.user_agent = bounded(message["userAgent"].as_str().unwrap_or_default(), 512);
                 state.extension = bounded(message["version"].as_str().unwrap_or_default(), 32);
                 state.browser = browser_name(&state.user_agent);
@@ -861,9 +860,13 @@ impl Host {
                 }
                 drop(state);
                 self.observe(profile);
+                self.set_private(observation::sites(&message["private"]));
+                if first {
+                    tracing::info!(event.name = "browser.host.started", outcome = "ready");
+                }
                 self.update();
             }
-            Some("private") => self.state().private_sites = observation::sites(&message["sites"]),
+            Some("private") => self.set_private(observation::sites(&message["sites"])),
             // The popup names the host's build.
             Some("about") => {
                 let body = serde_json::to_vec(&json!({
@@ -1120,6 +1123,7 @@ impl Host {
         let Some(entry) = state.tabs.get_mut(&tab) else {
             return;
         };
+        entry.frames.observe(method, params);
         if child.is_none()
             && method == "Page.frameNavigated"
             && params["frame"]["parentId"].is_null()
@@ -1130,7 +1134,13 @@ impl Host {
         if method == "Page.javascriptDialogOpening" {
             // Dialogs are journaled here, not by a Playwright listener, which would keep them open.
             let raw = json!({ "type": "dialog", "tab": tab, "kind": params["type"], "text": params["message"] });
-            Self::journal(&mut state, &self.config.activity, &project, &[raw]);
+            Self::journal(
+                &mut state,
+                &self.config.activity,
+                &project,
+                &[raw],
+                &self.config.diagnostics,
+            );
         }
         match (method, params["sessionId"].as_str()) {
             ("Target.attachedToTarget", Some(id)) if state.children.len() < 4096 => {
@@ -1204,6 +1214,7 @@ impl Host {
                 info,
                 target,
                 document: None,
+                frames: capture::FrameScope::default(),
             },
         );
         if state
@@ -1266,6 +1277,7 @@ impl Host {
         for session in state.sessions.values_mut() {
             session.closing = true;
             session.life.stop.cancel();
+            capture::revoke(session);
             session.client = None;
         }
     }
@@ -1278,6 +1290,7 @@ impl Host {
             for session in state.sessions.values_mut() {
                 session.closing = true;
                 session.life.stop.cancel();
+                capture::revoke(session);
                 session.client = None;
             }
         }
@@ -1620,6 +1633,7 @@ impl Host {
                 files: downloads::Files::default(),
                 journal: None,
                 recording: None,
+                capture: None,
             },
         );
         Ok(life)
@@ -1885,6 +1899,7 @@ impl Host {
                 .ok_or(Refusal::SessionNotFound)?;
             session.closing = true;
             life.stop.cancel();
+            capture::revoke(session);
             session.client = None;
             session.aliases.clear();
             session.downloads = None;

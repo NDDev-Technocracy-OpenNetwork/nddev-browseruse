@@ -17,6 +17,7 @@ name = "nddev-browseruse"
 path = "src/bin/nddev-browseruse.rs"
 
 [dependencies]
+base64 = "=0.23.1"
 nddev-browseruse-contract = { path = "crates/contract" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

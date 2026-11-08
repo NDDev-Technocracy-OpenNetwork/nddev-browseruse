@@ -57,6 +57,19 @@ impl Observation {
 #[derive(Clone, Debug)]
 pub struct Policy(Arc<AtomicU64>);
 
+/// An opaque retention generation, never a session credential or a diagnostic field.
+#[derive(Clone, Copy)]
+pub struct CollectionEpoch(u64);
+
+impl CollectionEpoch {
+    pub fn token(self) -> String {
+        format!("{:016x}", self.0)
+    }
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
+}
+
 impl Default for Policy {
     fn default() -> Self {
         // The host has not heard the owner's persisted choice yet.
@@ -65,6 +78,32 @@ impl Default for Policy {
 }
 
 impl Policy {
+    pub fn profile(&self) -> Observation {
+        match self.0.load(Ordering::Acquire) & MODE_MASK {
+            2 => Observation::Full,
+            1 => Observation::Standard,
+            _ => Observation::Off,
+        }
+    }
+
+    pub fn epoch_token(&self) -> String {
+        format!("{:016x}", self.0.load(Ordering::Acquire))
+    }
+
+    pub fn content_epoch(&self) -> Option<CollectionEpoch> {
+        let state = self.0.load(Ordering::Acquire);
+        (state & MODE_MASK == Observation::Full as u64).then_some(CollectionEpoch(state))
+    }
+
+    pub fn accepts_content(&self, epoch: CollectionEpoch) -> bool {
+        self.0.load(Ordering::Acquire) == epoch.0
+    }
+
+    /// Revoke queued work even if the mode stays the same (for example private sites changed).
+    pub fn invalidate(&self) {
+        self.0.fetch_add(MODE_MASK + 1, Ordering::AcqRel);
+    }
+
     pub fn set(&self, profile: Observation) {
         let _ = self
             .0

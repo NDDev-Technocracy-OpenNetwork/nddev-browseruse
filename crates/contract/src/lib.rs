@@ -5,6 +5,10 @@ use utoipa::{OpenApi, ToSchema};
 
 mod phone;
 pub use phone::PhoneLimits;
+mod executor;
+pub use executor::{ActivitySettings, ExecutorSettings, RecorderSettings};
+mod capture;
+pub use capture::{CaptureFailure, CaptureReply, CaptureRequest};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -70,6 +74,7 @@ pub struct FrontendConfig {
 pub struct Settings {
     pub public: FrontendConfig,
     pub phone_link: PhoneLimits,
+    pub executor: ExecutorSettings,
 }
 
 impl Settings {
@@ -99,6 +104,7 @@ impl Settings {
             .map_err(|_| "missing, unknown or mistyped setting")?;
         let public = &settings.public;
         if !settings.phone_link.validate()
+            || !settings.executor.validate()
             || public.minimum_host.split('.').count() != 3
             || !public
                 .minimum_host
@@ -169,7 +175,15 @@ pub struct OwnerRecording {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "nddev-browseruse local contracts", version = "2"),
-    components(schemas(FrontendConfig, BrowserStatus, OwnerRecording, BadgeColors))
+    components(schemas(
+        FrontendConfig,
+        BrowserStatus,
+        OwnerRecording,
+        BadgeColors,
+        ExecutorSettings,
+        CaptureRequest,
+        CaptureReply
+    ))
 )]
 pub struct Contract;
 
@@ -207,6 +221,27 @@ pendingCalls = 8
 backgroundWork = 8
 callTimeoutMs = 1000
 writeTimeoutMs = 1000
+[executor.activity]
+batchRecords = 4
+batchBytes = 4096
+queueRecords = 16
+queueBytes = 8192
+sendDelayMs = 20
+bodyBytes = 1024
+networkTasks = 2
+[executor.recorder]
+frameIntervalMs = 100
+frameBytes = 4096
+maxBytes = 8192
+maxMs = 5000
+queuedFrames = 2
+queuedBytes = 8192
+queuedEvents = 4
+secretCache = 4
+secretTimeoutMs = 100
+jpegQuality = 70
+maxEdge = 1280
+frameTargets = 2
 "#;
 
     #[test]

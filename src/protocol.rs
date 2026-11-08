@@ -21,6 +21,24 @@ pub const MAX_SESSIONS: usize = 8;
 pub const MAX_TABS: usize = 32;
 const PROJECT_LIMIT: usize = 48;
 
+/// Counts serialized bytes without allocating a second copy of an untrusted payload.
+pub(crate) fn json_fits(value: &impl Serialize, limit: usize) -> bool {
+    struct Budget(usize);
+    impl std::io::Write for Budget {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self
+                .0
+                .checked_sub(bytes.len())
+                .ok_or(std::io::ErrorKind::InvalidInput)?;
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    serde_json::to_writer(Budget(limit), value).is_ok()
+}
+
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {

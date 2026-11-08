@@ -72,7 +72,7 @@
     "message": "Recorded {v1, plural, one {# action} other {# actions}}. The agent reads them with `recorder events`."
   },
   "recordHint": {
-    "message": "Your clicks, typing and navigations here become steps the agent can replay."
+    "message": "Records your clicks, typing, navigations and page images in agent tabs. Sensitive pixels are not masked."
   },
   "refusedNoAgentTab": {
     "message": "Open a tab of an agent group to record what you do there."
@@ -177,7 +177,7 @@
     "message": "Off"
   },
   "observationFull": {
-    "message": "A full journal on this device, secrets removed."
+    "message": "Local activity journal with recognized secrets redacted."
   },
   "observationStandard": {
     "message": "Only names, timings and outcomes, no page content."
@@ -210,7 +210,7 @@
     "message": "Your chosen agents can read and act in their own tab groups. Pages and results reach those agents to carry out your requests, including when collection is Off."
   },
   "consentData": {
-    "message": "Full saves a redacted activity journal on this device. Standard keeps operation metadata only. Off collects neither and disables recording. This extension sends no diagnostics to NDDev."
+    "message": "Full saves a local activity journal. Explicit workflow recording also saves page images; sensitive pixels are not masked. Standard keeps operation metadata only. Off collects neither and stops the workflow recorder. No diagnostics are sent to NDDev."
   },
   "previousChoice": {
     "message": "Your saved preference: {v1}. Control and private sites are preserved. Collection stays Off until you choose below."

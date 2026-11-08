@@ -9,6 +9,31 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
     let (outbound, queue) = mpsc::channel(16);
     let host = Arc::new(Host {
         config: Config {
+            executor_settings: crate::configuration::ExecutorSettings {
+                activity: crate::configuration::ActivitySettings {
+                    batch_records: 4,
+                    batch_bytes: 4096,
+                    queue_records: 16,
+                    queue_bytes: 8192,
+                    send_delay_ms: 20,
+                    body_bytes: 1024,
+                    network_tasks: 2,
+                },
+                recorder: crate::configuration::RecorderSettings {
+                    frame_interval_ms: 100,
+                    frame_bytes: 4096,
+                    max_bytes: 8192,
+                    max_ms: 5000,
+                    queued_frames: 2,
+                    queued_bytes: 8192,
+                    queued_events: 4,
+                    secret_cache: 4,
+                    secret_timeout_ms: 100,
+                    jpeg_quality: 70,
+                    max_edge: 1280,
+                    frame_targets: 2,
+                },
+            },
             diagnostics: crate::diagnostics::Policy::default(),
             runtime: runtime.clone(),
             bun: std::env::current_exe().unwrap(),
@@ -1162,4 +1187,109 @@ async fn an_extension_that_cannot_name_download_files_answers_unsupported() {
         .await
         .unwrap_or_else(|_| panic!("refused"));
     assert_eq!(answer, json!({ "unsupported": true }));
+}
+
+#[tokio::test]
+async fn journal_requires_the_current_full_epoch_and_never_revives_revoked_records() {
+    let (host, _queue, _root) = fixture();
+    let handle = host.create_owned("project").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    host.observe(observation::Observation::Full);
+    let old = host.observation()["epoch"].as_str().unwrap().to_owned();
+    host.observe(observation::Observation::Off);
+    host.observe(observation::Observation::Full);
+    let epoch = host.observation()["epoch"].as_str().unwrap().to_owned();
+    let records = json!([{ "type": "console", "level": "error", "text": "fixture" }]);
+    assert_eq!(
+        host.activity(
+            "project",
+            &json!({ "records": records, "epoch": old, "flush": true })
+        )
+        .await["kept"],
+        false
+    );
+    assert_eq!(
+        host.activity("project", &json!({ "records": records, "flush": true }))
+            .await["kept"],
+        false
+    );
+    assert_eq!(
+        host.activity(
+            "project",
+            &json!({ "records": records, "epoch": epoch, "flush": true })
+        )
+        .await["kept"],
+        true
+    );
+    host.set_private(vec!["private.test".into()]);
+    assert_eq!(
+        host.activity(
+            "project",
+            &json!({ "records": records, "epoch": epoch, "flush": true })
+        )
+        .await["kept"],
+        false
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn off_drains_the_writer_and_rejects_activity_already_waiting_for_it() {
+    let (host, _queue, _root) = fixture();
+    let handle = host.create_owned("project").unwrap();
+    let _client = opened_client(&host, &handle, 1);
+    host.observe(observation::Observation::Full);
+    let epoch = host.observation()["epoch"].as_str().unwrap().to_owned();
+    let initial = json!({ "epoch": epoch, "records": [{ "type": "console", "level": "error", "text": "held fixture" }] });
+    assert_eq!(host.activity("project", &initial).await["kept"], true);
+    let journal = host.state().sessions["project"].journal.clone().unwrap();
+    let life = host.state().sessions["project"].life.clone();
+    let (locked, ready) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    let holder = tokio::task::spawn_blocking(move || {
+        let _guard = journal.lock().unwrap();
+        locked.send(()).unwrap();
+        wait.recv_timeout(Duration::from_secs(5)).unwrap();
+    });
+    ready.await.unwrap();
+    let pending = {
+        let host = host.clone();
+        tokio::spawn(async move {
+            host.activity(
+                "project",
+                &json!({ "epoch": epoch, "flush": true,
+                "records": [{ "type": "console", "level": "error", "text": "queued fixture" }] }),
+            )
+            .await
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while *life.pending.borrow() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let off = {
+        let host = host.clone();
+        tokio::task::spawn_blocking(move || host.observe(observation::Observation::Off))
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while host.config.diagnostics.profile() != observation::Observation::Off {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    release.send(()).unwrap();
+    holder.await.unwrap();
+    off.await.unwrap();
+    assert_eq!(pending.await.unwrap()["kept"], false);
+    host.observe(observation::Observation::Full);
+    host.tick_journals();
+    let query = crate::activity::Query::default();
+    assert!(
+        crate::activity::read(&host.config.activity.join("project"), &query)
+            .unwrap()
+            .is_empty()
+    );
 }

@@ -11,6 +11,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Console } from "./agent/format";
 
 export type Execution = {
+  /** Stable operation identity for callbacks that outlive the script's result. */
+  id?: number;
   signal: AbortSignal;
   logs: Console[];
   /** What undoes the execution's registrations, run once it is aborted. */

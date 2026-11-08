@@ -12,6 +12,54 @@
   "paths": {},
   "components": {
     "schemas": {
+      "ActivitySettings": {
+        "type": "object",
+        "required": [
+          "batchRecords",
+          "batchBytes",
+          "queueRecords",
+          "queueBytes",
+          "sendDelayMs",
+          "bodyBytes",
+          "networkTasks"
+        ],
+        "properties": {
+          "batchBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "batchRecords": {
+            "type": "integer",
+            "description": "Records and serialized bytes in one native activity command, per executor.",
+            "minimum": 0
+          },
+          "bodyBytes": {
+            "type": "integer",
+            "description": "Maximum safely sized, uncompressed HTTP body read for a journal record.",
+            "minimum": 0
+          },
+          "networkTasks": {
+            "type": "integer",
+            "description": "Concurrent metadata/body lookups; a slot stays held until the underlying call settles.",
+            "minimum": 0
+          },
+          "queueBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queueRecords": {
+            "type": "integer",
+            "description": "Total queued records/bytes, including a batch awaiting delivery; one sender at a time.",
+            "minimum": 0
+          },
+          "sendDelayMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "BadgeColors": {
         "type": "object",
         "description": "Colors projected from the public DS for Chrome APIs that cannot accept CSS tokens.",
@@ -129,6 +177,208 @@
           },
           "version": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CaptureFailure": {
+        "type": "string",
+        "enum": [
+          "policy_changed",
+          "document_changed",
+          "private_page",
+          "capacity",
+          "invalid_request",
+          "unavailable",
+          "stopped",
+          "frame_limit",
+          "target_closed"
+        ]
+      },
+      "CaptureReply": {
+        "type": "object",
+        "required": [
+          "kept",
+          "frames",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CaptureFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "frames": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kept": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CaptureRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "epoch",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "begin"
+                ]
+              },
+              "directory": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "epoch": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "page",
+              "target",
+              "epoch",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "page"
+                ]
+              },
+              "epoch": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "page": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "target": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "scope",
+              "page",
+              "at",
+              "data",
+              "epoch",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "frame"
+                ]
+              },
+              "at": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "data": {
+                "type": "string"
+              },
+              "epoch": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "page": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "scope": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "action"
+            ],
+            "properties": {
+              "action": {
+                "type": "string",
+                "enum": [
+                  "stop"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Private local operation data. Never implement Debug or send these fields to diagnostics."
+      },
+      "ExecutorSettings": {
+        "type": "object",
+        "description": "Public to the local thin executor. Fixed for one host/executor lifetime; policy stays live.",
+        "required": [
+          "activity",
+          "recorder"
+        ],
+        "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/ActivitySettings"
+          },
+          "recorder": {
+            "$ref": "#/components/schemas/RecorderSettings"
           }
         },
         "additionalProperties": false
@@ -276,6 +526,82 @@
               "boolean",
               "null"
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RecorderSettings": {
+        "type": "object",
+        "required": [
+          "frameIntervalMs",
+          "frameBytes",
+          "maxBytes",
+          "maxMs",
+          "queuedFrames",
+          "queuedBytes",
+          "queuedEvents",
+          "secretCache",
+          "secretTimeoutMs",
+          "jpegQuality",
+          "maxEdge",
+          "frameTargets"
+        ],
+        "properties": {
+          "frameBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frameIntervalMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Milliseconds between retained frames, per page.",
+            "minimum": 0
+          },
+          "frameTargets": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "jpegQuality": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "maxBytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "One recording's total retained bytes and duration in milliseconds.",
+            "minimum": 0
+          },
+          "maxEdge": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "maxMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queuedBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queuedEvents": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queuedFrames": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "secretCache": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "secretTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         },
         "additionalProperties": false
