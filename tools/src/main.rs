@@ -49,6 +49,7 @@ fn execute() -> Result {
             )
         }
         "test" => {
+            check_generated()?;
             run(
                 "cargo",
                 &[
@@ -94,6 +95,9 @@ fn execute() -> Result {
             let target = target_directory()?;
             let mut browser = Command::new(tool("bun"));
             browser.args(["run", "e2e"]);
+            if let Some(pattern) = std::env::args().nth(2) {
+                browser.args(["--test-name-pattern", &pattern]);
+            }
             let chrome = test_browser()?;
             if cfg!(target_os = "linux")
                 && std::env::var_os("NDS_TEST_CHROME").is_none()
@@ -137,6 +141,7 @@ fn run(program: impl AsRef<OsStr>, args: &[&str]) -> Result {
 }
 
 fn complete(mut command: Command) -> Result {
+    prepared_path(&mut command)?;
     let program = command.get_program().to_string_lossy().into_owned();
     let status = command.status()?;
     if status.success() {
@@ -147,11 +152,23 @@ fn complete(mut command: Command) -> Result {
 }
 
 fn capture(program: impl AsRef<OsStr>, args: &[&str]) -> Result<String> {
-    let output = Command::new(program).args(args).output()?;
+    let mut command = Command::new(program);
+    command.args(args);
+    prepared_path(&mut command)?;
+    let output = command.output()?;
     if !output.status.success() {
         return Err("project tool query failed".into());
     }
     Ok(String::from_utf8(output.stdout)?.trim().to_owned())
+}
+
+fn prepared_path(command: &mut Command) -> Result {
+    let mut paths = vec![std::env::current_dir()?.join(".tools/bin")];
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&path));
+    }
+    command.env("PATH", std::env::join_paths(paths)?);
+    Ok(())
 }
 
 fn setup() -> Result {
@@ -337,6 +354,37 @@ fn generate() -> Result {
     encoded.push(b'\n');
     fs::write(path, encoded)?;
     run(tool("bun"), &["run", "generate"])
+}
+
+fn check_generated() -> Result {
+    let generated = Path::new(".tools/generated-browser");
+    if generated.exists() {
+        fs::remove_dir_all(generated)?;
+    }
+    run(
+        tool("bun"),
+        &[
+            "run",
+            "tsc",
+            "-p",
+            "tsconfig.extension.json",
+            "--outDir",
+            ".tools/generated-browser",
+        ],
+    )?;
+    fn compare(source: &Path, checked: &Path) -> Result {
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let target = checked.join(entry.file_name());
+            if entry.file_type()?.is_dir() {
+                compare(&entry.path(), &target)?;
+            } else if fs::read(entry.path())? != fs::read(&target)? {
+                return Err(format!("generated browser code drift: {}", target.display()).into());
+            }
+        }
+        Ok(())
+    }
+    compare(generated, Path::new("packages/desktop/extension"))
 }
 
 fn source_commit() -> Result<String> {
