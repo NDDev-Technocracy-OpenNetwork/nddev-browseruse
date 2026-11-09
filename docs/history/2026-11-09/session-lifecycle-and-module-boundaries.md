@@ -94,9 +94,13 @@ instructions; #25 tracks the native encoder prerequisite and #24 the first autom
 A further investigation distinguished tab-strip cleanup from Chrome's saved/synced group model.
 The unsigned-in sync-internals model was empty and supplied no proof. Chromium's file-backed
 loopback sync made actual Saved Tab Group records observable in an isolated profile without an
-account or remote sync service. Positive controls appeared before removal; ordinary tab removal,
-including the last tab in a separate window, removed the saved record. No speculative production
-cleanup change was made. Acceptance now checks real saved GUIDs for normal close, retained pages,
+account or remote sync service. Positive controls appeared before removal. Ordinary removal deleted the saved record while its
+window remained open, but a corrected separate-window probe reproduced retention when the last
+grouped tab closed. The product reproduction also failed against the previous staged extension
+after successful session close: its saved GUID remained. Retirement now ungroups the verified
+control tab before deletion and rechecks its marker, window and ungrouped state after that await.
+Owner navigation or movement during that boundary preserves the tab. Acceptance checks real
+saved GUIDs for normal close, retained pages,
 host loss and five-minute expiry, while keeping the active recording's saved group until close.
 The owner-assisted legacy workflow and the cross-device effect of Chrome's Ungroup are in #23.
 

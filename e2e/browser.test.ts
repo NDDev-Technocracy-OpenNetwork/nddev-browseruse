@@ -3433,9 +3433,10 @@ test("closing the last agent group of a window deletes its saved record", async 
       const [tab] = await chrome.tabs.query({ url });
       if (!tab || tab.groupId < 0) throw new Error("agent group missing");
       const window = await chrome.windows.create({ url: "about:blank", focused: false });
-      const seed = window.tabs?.[0]?.id;
-      if (window.id === undefined || seed === undefined) throw new Error("test window missing");
+      const seed = window?.tabs?.[0]?.id;
+      if (window?.id === undefined || seed === undefined) throw new Error("test window missing");
       const group = await chrome.tabGroups.move(tab.groupId, { windowId: window.id, index: 0 });
+      if (!group) throw new Error("test group missing");
       await chrome.tabs.remove(seed);
       const tabs = await chrome.tabs.query({ windowId: group.windowId });
       return { window: group.windowId, id: group.id, groups: tabs.map((tab) => tab.groupId) };

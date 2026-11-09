@@ -10,5 +10,7 @@ before loading the extension. Finish active sessions before changing native regi
 Loading the extension and store submission remain owner actions. Chrome updates the existing
 listing; Edge's future assigned ID and real Edge acceptance remain required. Physical Android
 and NDS adoption are tracked separately. Old unmarked groups require an explicit owner handoff.
+Retirement dissolves the owned group before removing its service tab, so closing the window's
+last agent tab also removes Chrome's saved group. Ownership is rechecked before closing that tab.
 
 [Installation](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/{{source}}/docs/desktop.md) · [Privacy](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/blob/{{source}}/docs/privacy.md) · [Channel follow-up](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/issues/18)
