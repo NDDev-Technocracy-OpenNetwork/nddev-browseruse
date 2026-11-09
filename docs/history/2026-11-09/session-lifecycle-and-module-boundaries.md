@@ -83,3 +83,38 @@ main publication consume the successful dev/native/security artifacts of that ex
 Browser acceptance now records measured results separately from build facts. The publisher
 reconciles immutable tags and draft assets and downloads uploaded bytes before publication.
 Browser loading, store submission and contour-side deployment remain their existing owners.
+
+The first merged dev commit 1574d4d4f6b12aeac7da168dd870dbb3c6921930 passed the complete PC
+packet qualification: 147 nextest, 116 Vitest and all 84 browser/ADB-fixture cases. Full native
+macOS/Windows and security dev jobs succeeded. The public Linux dev job lacked FFmpeg, skipped
+three media cases and correctly failed the new zero-skip packet guard. Main and live installations
+therefore remained at 0.2.6. The source-consistent candidate was prepared with explicit hold
+instructions; #25 tracks the native encoder prerequisite and #24 the first automated publication.
+
+A further investigation distinguished tab-strip cleanup from Chrome's saved/synced group model.
+The unsigned-in sync-internals model was empty and supplied no proof. Chromium's file-backed
+loopback sync made actual Saved Tab Group records observable in an isolated profile without an
+account or remote sync service. Positive controls appeared before removal. Ordinary removal deleted the saved record while its
+window remained open, but a corrected separate-window probe reproduced retention when the last
+grouped tab closed. The product reproduction also failed against the previous staged extension
+after successful session close: its saved GUID remained. Retirement now ungroups the verified
+control tab before deletion and rechecks its marker, window and ungrouped state after that await.
+Owner navigation or movement during that boundary preserves the tab. Moving a whole group across
+windows emits intermediate group removal events; the regression instead creates the session in
+its initial test window and verifies that window before removing its ungrouped seed tab.
+Acceptance checks real
+saved GUIDs for normal close, retained pages,
+host loss and five-minute expiry, while keeping the active recording's saved group until close.
+The owner-assisted legacy workflow and the cross-device effect of Chrome's Ungroup are in #23.
+
+The final provider audit found the test browser still pinned to the previous line. Official
+Chrome-for-Testing metadata supplies the selected stable fixture for Linux x64, macOS arm64 and
+Windows x64. Each archive was downloaded on the build PC, measured, SHA-256 pinned and ZIP-CRC
+checked before updating provider.lock.json. This changes test artifacts, not an installed browser.
+
+The final otherwise-empty-window fixture was red against the original staged extension and green
+with the retirement fix on Chrome-for-Testing 157. It validates the initial window and saved GUID
+before closing, rather than moving the group through Chrome's intermediate removal events.
+Privacy policy, five-language store copy and reviewer notes now distinguish local product
+analytics from Chrome's independent saving/sync of group titles and tab URLs. Externally closing
+a whole window remains the scoped recovery investigation in #27.

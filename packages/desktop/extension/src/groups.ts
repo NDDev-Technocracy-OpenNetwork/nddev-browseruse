@@ -263,8 +263,19 @@ export class Groups {
     if (
       anchor?.groupId === binding.group &&
       this.marker(anchor.pendingUrl ?? anchor.url) === binding.identity.id
-    )
-      await chrome.tabs.remove(binding.anchor);
+    ) {
+      // Closing the window's last grouped tab preserves Chrome's saved group. Dissolve the
+      // group first, then recheck authority: the owner may move or navigate this control tab.
+      const window = anchor.windowId;
+      await chrome.tabs.ungroup(binding.anchor);
+      const retired = await chrome.tabs.get(binding.anchor).catch(() => undefined);
+      if (
+        retired?.groupId === chrome.tabGroups.TAB_GROUP_ID_NONE &&
+        retired.windowId === window &&
+        this.marker(retired.pendingUrl ?? retired.url) === binding.identity.id
+      )
+        await chrome.tabs.remove(binding.anchor);
+    }
     // Any tab added after the closing snapshot belongs to the owner, not the retired life.
     const remaining = await chrome.tabs.query({ groupId: binding.group });
     for (const tab of remaining) {

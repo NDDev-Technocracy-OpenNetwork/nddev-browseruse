@@ -169,6 +169,47 @@ function tabs(result: Result): { target: string; document: string; url: string }
   return result.body.tabs as { target: string; document: string; url: string }[];
 }
 
+// Query the real Saved Tab Group model, rather than equating an empty tab strip with deletion.
+// This fixture uses Chromium's file-backed loopback sync, with no account or remote sync service.
+async function savedGroups(inspector: Page): Promise<{ guid: string; title: string }[]> {
+  type Node = {
+    SPECIFICS?: { saved_tab_group?: { guid: string; group?: { title: string } } };
+    metadata?: { is_deleted?: boolean };
+  };
+  // Keep the browser import out of Vitest's server-side module rewriting.
+  const nodes = (await inspector.evaluate(`
+    import("chrome://sync-internals/chrome_sync.js").then(module =>
+      new Promise(resolve => module.getAllNodes(resolve)))
+  `)) as { type: string; nodes: Node[] }[];
+  const groups = nodes.find((entry) => entry.type === "Saved Tab Group");
+  if (!groups) throw new Error("Saved Tab Group model unavailable");
+  return groups.nodes.flatMap((node) => {
+    const saved = node.SPECIFICS?.saved_tab_group;
+    return saved?.group && !node.metadata?.is_deleted
+      ? [{ guid: saved.guid, title: saved.group.title }]
+      : [];
+  });
+}
+
+async function savedGroup(inspector: Page, title: string): Promise<string> {
+  await expect
+    .poll(async () => (await savedGroups(inspector)).filter((group) => group.title === title), {
+      timeout: 10000,
+    })
+    .toEqual([{ title, guid: expect.any(String) }]);
+  const group = (await savedGroups(inspector)).find((group) => group.title === title);
+  if (!group) throw new Error("saved group disappeared before retirement");
+  return group.guid;
+}
+
+async function savedGroupRemoved(inspector: Page, guid: string): Promise<void> {
+  await expect
+    .poll(async () => (await savedGroups(inspector)).some((group) => group.guid === guid), {
+      timeout: 10000,
+    })
+    .toBe(false);
+}
+
 // Process IDs whose command line contains `pattern`; this run's paths make it unique. On
 // Windows the pattern reaches the query through its environment, so the query never matches
 // its own command line.
@@ -447,11 +488,13 @@ beforeAll(async () => {
     headless: process.env.NDS_TEST_HEADED !== "1",
     env,
     // The owner's browser keeps the back-forward cache; Playwright turns it off by default.
-    ignoreDefaultArgs: ["--disable-back-forward-cache"],
+    ignoreDefaultArgs: ["--disable-back-forward-cache", "--disable-sync"],
     // Tabs keep their window's own size, as in the owner's browser: the observer emulates none.
     viewport: null,
     args: [
       "--remote-debugging-port=0",
+      "--enable-local-sync-backend",
+      `--local-sync-backend-dir=${join(root, "loopback-sync")}`,
       "--window-size=800,800",
       `--disable-extensions-except=${installed},${foreign}`,
       `--load-extension=${installed},${foreign}`,
@@ -3214,8 +3257,11 @@ test("a session whose execution timed out during a long wait closes and opens ag
 }, 60_000);
 
 test("the group control tab shows local analytics and hands retained pages back to the owner", async () => {
+  const saved = await observer.newPage();
+  await saved.goto("chrome://sync-internals/");
   await opened("dashboard");
   try {
+    const group = await savedGroup(saved, "dashboard");
     const ran = await run(
       "dashboard",
       `const page = await context.newPage(); await page.goto("${origin}/?dashboard"); return context.pages().map(page => page.url())`,
@@ -3284,9 +3330,11 @@ test("the group control tab shows local analytics and hands retained pages back 
     expect((await cli("session", "list")).body).not.toContainEqual(
       expect.objectContaining({ project: "dashboard" }),
     );
+    await savedGroupRemoved(saved, group);
     await retained?.close();
   } finally {
     await cli("session", "close", "dashboard", "--close-tabs");
+    await saved.close();
   }
 });
 
@@ -3346,13 +3394,72 @@ test("a lost host ends its group and its replacement starts without old browser 
 });
 
 test("closing a session cleans only its own area", async () => {
-  expect((await cli("session", "close", "acceptance")).code).toBe(0);
-  await Bun.sleep(500);
-  expect(await observed("/")).toBeUndefined();
-  expect(await observed("/owner")).toBeDefined();
-  expect(existsSync(area("acceptance"))).toBe(false);
-  expect(await observed("/frame")).toBeUndefined();
-  expect((await run("acceptance", "1")).body.error).toBe("session_not_found");
+  const saved = await observer.newPage();
+  await saved.goto("chrome://sync-internals/");
+  try {
+    const group = await savedGroup(saved, "acceptance");
+    expect((await cli("session", "close", "acceptance")).code).toBe(0);
+    await savedGroupRemoved(saved, group);
+    expect(await observed("/")).toBeUndefined();
+    expect(await observed("/owner")).toBeDefined();
+    expect(existsSync(area("acceptance"))).toBe(false);
+    expect(await observed("/frame")).toBeUndefined();
+    expect((await run("acceptance", "1")).body.error).toBe("session_not_found");
+  } finally {
+    await saved.close();
+  }
+});
+
+test("closing the last agent group of a window deletes its saved record", async () => {
+  const project = "sole-window";
+  const saved = await observer.newPage();
+  await saved.goto("chrome://sync-internals/");
+  const inspector = await observer.newPage();
+  await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
+  let window: number | undefined;
+  try {
+    const space = await inspector.evaluate(async () => {
+      const window = await chrome.windows.create({ url: "about:blank", focused: true });
+      const seed = window?.tabs?.[0]?.id;
+      if (window?.id === undefined || seed === undefined) throw new Error("test window missing");
+      return { window: window.id, seed };
+    });
+    window = space.window;
+    await opened(project);
+    expect(
+      (
+        await run(
+          project,
+          `const page = await context.newPage(); await page.goto("${origin}/?sole-window"); return "ready"`,
+        )
+      ).body.value,
+    ).toBe("ready");
+    const page = await observed("/?sole-window");
+    expect(page).toBeDefined();
+    const alone = await inspector.evaluate(
+      async ({ url, window, seed }) => {
+        const [tab] = await chrome.tabs.query({ url });
+        if (!tab || tab.groupId < 0) throw new Error("agent group missing");
+        const group = await chrome.tabGroups.get(tab.groupId);
+        if (group.windowId !== window) throw new Error("agent group left its initial window");
+        await chrome.tabs.remove(seed);
+        const tabs = await chrome.tabs.query({ windowId: group.windowId });
+        return { id: group.id, groups: tabs.map((tab) => tab.groupId) };
+      },
+      { ...space, url: `${origin}/?sole-window` },
+    );
+    expect(alone.groups).toEqual([alone.id, alone.id]);
+    const group = await savedGroup(saved, project);
+    expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
+    expect(page?.isClosed()).toBe(true);
+    await savedGroupRemoved(saved, group);
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
+    if (window !== undefined)
+      await inspector.evaluate((id) => chrome.windows.remove(id).catch(() => {}), window);
+    await inspector.close();
+    await saved.close();
+  }
 });
 
 test("host loss automatically removes an abandoned agent group", async () => {
@@ -3360,8 +3467,11 @@ test("host loss automatically removes an abandoned agent group", async () => {
   await owner.goto(`${origin}/owner`);
   const inspector = await observer.newPage();
   await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
+  const saved = await observer.newPage();
+  await saved.goto("chrome://sync-internals/");
   try {
     await opened("lost-cleanup");
+    const identity = await savedGroup(saved, "lost-cleanup");
     expect(
       (
         await run(
@@ -3405,12 +3515,14 @@ test("host loss automatically removes an abandoned agent group", async () => {
         );
       }, group),
     ).toBe(false);
+    await savedGroupRemoved(saved, identity);
     expect(owner.isClosed()).toBe(false);
     expect(owner.url()).toBe(`${origin}/owner`);
     expect(processes(cdpEndpoint)).toHaveLength(0);
     expect((await opened("lost-cleanup")).body.tabs).toBe(0);
     expect((await cli("session", "close", "lost-cleanup")).code).toBe(0);
   } finally {
+    await saved.close();
     await inspector.close();
     await owner.close();
   }
@@ -3426,6 +3538,8 @@ test.skipIf(Bun.which("ffmpeg") === null)(
   "a real video recording survives the complete idle lease and then closes cleanly",
   async () => {
     const project = "video-idle";
+    const saved = await observer.newPage();
+    await saved.goto("chrome://sync-internals/");
     await opened("plain-idle");
     expect(
       (
@@ -3445,12 +3559,16 @@ test.skipIf(Bun.which("ffmpeg") === null)(
         "25000",
       );
       expect(started.body.value).toBe("recording");
+      const plainGroup = await savedGroup(saved, "plain-idle");
+      const videoGroup = await savedGroup(saved, project);
       const idle = Number((await cli("capabilities")).body.idle_timeout_ms);
       expect(idle).toBe(300000);
       const deadline = Date.now() + idle + 10000;
       // These are no agent operations: the execution lease must remain untouched throughout.
       while (Date.now() < deadline) await Bun.sleep(Math.min(1000, deadline - Date.now()));
       expect(plain?.isClosed()).toBe(true);
+      await savedGroupRemoved(saved, plainGroup);
+      expect(await savedGroups(saved)).toContainEqual({ guid: videoGroup, title: project });
       expect((await cli("session", "list")).body).not.toContainEqual(
         expect.objectContaining({ project: "plain-idle" }),
       );
@@ -3467,9 +3585,11 @@ test.skipIf(Bun.which("ffmpeg") === null)(
       expect(page?.isClosed()).toBe(false);
       expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
       expect(page?.isClosed()).toBe(true);
+      await savedGroupRemoved(saved, videoGroup);
     } finally {
       await cli("session", "close", project, "--close-tabs");
       await cli("session", "close", "plain-idle", "--close-tabs");
+      await saved.close();
     }
   },
   420000,

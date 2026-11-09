@@ -48,6 +48,7 @@ class Browser {
   readonly failing = new Set<string>();
   readonly heldCommands = new Map<string, ReturnType<typeof deferred>>();
   readonly actions: string[] = [];
+  afterUngroup: ((id: number) => void) | undefined;
   readonly notifications: { id: string; message: string }[] = [];
   // Notifications Chrome still shows, by id, and the clears and focus calls the worker made.
   readonly shown = new Set<string>();
@@ -215,7 +216,10 @@ class Browser {
           for (const id of tabIds) this.move(id, target);
           return target;
         },
-        ungroup: async (id: number) => this.move(id, -1),
+        ungroup: async (id: number) => {
+          this.move(id, -1);
+          this.afterUngroup?.(id);
+        },
         update: async (id: number, change?: { active?: boolean }) => {
           if (change?.active) this.focus.push(`tab ${id}`);
           return this.tab(id);
@@ -232,6 +236,7 @@ class Browser {
         onRemoved: this.events.tabsRemoved,
       },
       tabGroups: {
+        TAB_GROUP_ID_NONE: -1,
         get: async (id: number) => ({ id, windowId: this.groupWindows.get(id) ?? 1 }),
         update: async (id: number, change?: { collapsed?: boolean }) => {
           if (change?.collapsed === false) this.focus.push(`group ${id}`);
@@ -573,6 +578,32 @@ test("taking back or navigating the control tab ends its old group without delet
     expect(owner.stopped).toEqual(["p"]);
     expect(browser.tabs.has(2)).toBe(true);
     if (action !== "remove") expect(browser.tabs.has(anchor.id)).toBe(true);
+  }
+});
+
+test("owner changes during control-tab retirement preserve that tab", async () => {
+  for (const action of ["regroup", "window", "navigate"]) {
+    const browser = new Browser({}, [
+      [1, P],
+      [2, Q],
+    ]);
+    const owner = managed(browser, new Map([["p", P]]));
+    await owner.groups.load();
+    await owner.groups.ensure("p");
+    const anchor = [...browser.tabs.values()].find((tab) => tab.url.includes("group.html#"));
+    if (!anchor) throw new Error("control tab missing");
+    browser.afterUngroup = (id) => {
+      if (id !== anchor.id) return;
+      if (action === "regroup") browser.move(id, Q);
+      else if (action === "window") anchor.windowId = 2;
+      else anchor.url = "https://example.test/owner";
+    };
+    await owner.groups.close("p", true);
+    expect(browser.tabs.has(1)).toBe(false);
+    expect(browser.tabs.has(2)).toBe(true);
+    expect(browser.tabs.has(anchor.id)).toBe(true);
+    expect(browser.actions).not.toContain(`remove ${anchor.id}`);
+    expect(browser.stored.ownedGroups).toEqual({ schema: 1, groups: [] });
   }
 });
 

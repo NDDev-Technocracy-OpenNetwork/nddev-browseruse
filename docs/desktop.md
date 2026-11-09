@@ -43,6 +43,13 @@ replacement until ownership is unambiguous. Groups left by older builds without 
 be identified safely after extension reload/update or a whole-browser restart clears their old
 session-storage mapping; a title alone never authorizes deletion.
 
+Retirement ungroups its verified service tab before deleting it, so the last agent group of a
+window does not remain as a saved group. Chrome's independent saving/sync behavior also depends
+on browser/account settings. Externally closing the whole window can retain a saved record;
+that recovery boundary is tracked in [#27](https://github.com/NDDev-Technocracy-OpenNetwork/nddev-browseruse/issues/27).
+For an explicitly owner-selected old group, Chrome's Ungroup keeps its local pages and removes
+the group across the account's devices. Closing a group alone retains its saved record.
+
 Video recording holds a separate, bounded native reservation. Only a live encoder renews it;
 stopping the recording, losing its executor or missing renewals removes that protection.
 Renewals do not count as agent work or reset the idle countdown. The host also expires a person
@@ -78,6 +85,8 @@ the pinned Chrome for Testing archive after checking its size and SHA-256.
 Chromium's sandbox remains enabled. The isolated Linux SUID sandbox helper
 requires permission to set its owner and mode; failure stops the check.
 No owner profile or native-host registration is used for acceptance.
+The isolated browser uses Chromium's file-backed local sync backend to check actual saved group
+GUIDs, with positive controls before retirement. It uses no account or remote sync service.
 
 `just verify-staged /absolute/new/native-packet` runs the checks, builds the release
 host, stages its executor/dependencies/extension and runs acceptance against those
