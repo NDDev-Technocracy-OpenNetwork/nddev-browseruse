@@ -99,3 +99,8 @@ including the last tab in a separate window, removed the saved record. No specul
 cleanup change was made. Acceptance now checks real saved GUIDs for normal close, retained pages,
 host loss and five-minute expiry, while keeping the active recording's saved group until close.
 The owner-assisted legacy workflow and the cross-device effect of Chrome's Ungroup are in #23.
+
+The final provider audit found the test browser still pinned to the previous line. Official
+Chrome-for-Testing metadata supplies the selected stable fixture for Linux x64, macOS arm64 and
+Windows x64. Each archive was downloaded on the build PC, measured, SHA-256 pinned and ZIP-CRC
+checked before updating provider.lock.json. This changes test artifacts, not an installed browser.

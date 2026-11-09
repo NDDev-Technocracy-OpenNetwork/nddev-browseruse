@@ -1,26 +1,26 @@
 {
   "browser": "chrome-for-testing",
   "channel": "Stable",
-  "version": "156.0.8078.47",
-  "linux_asset": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/linux64/chrome-linux64.zip",
-  "sha256": "e6c94490f0b6b337225aeb2d2a5034858516b7017356980ba94f5176d8774a50",
-  "size": 200206486,
+  "version": "157.0.8103.38",
+  "linux_asset": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/linux64/chrome-linux64.zip",
+  "sha256": "8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66",
+  "size": 203502190,
   "executables": {
     "NDS_TEST_CHROME": "chrome-linux64/chrome",
     "CHROME_DEVEL_SANDBOX": "chrome-linux64/chrome_sandbox"
   },
   "mac_arm64": {
-    "asset": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/mac-arm64/chrome-mac-arm64.zip",
-    "sha256": "ad7f2b49a4dc679af286b1b1b386670d93ca7868079f69012d21ba0ac8293df3",
-    "size": 194932023,
+    "asset": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/mac-arm64/chrome-mac-arm64.zip",
+    "sha256": "3406b38b52b7d341d74450eb7b369be038c9fec9894c8b8a9e9e9f97333caf2f",
+    "size": 196562867,
     "executables": {
       "NDS_TEST_CHROME": "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
     }
   },
   "win64": {
-    "asset": "https://storage.googleapis.com/chrome-for-testing-public/156.0.8078.47/win64/chrome-win64.zip",
-    "sha256": "a4e0d57245e167e98a9d465af1e3774d2b4ec9f04e483d19bcd97a6f63cf46dd",
-    "size": 209154801,
+    "asset": "https://storage.googleapis.com/chrome-for-testing-public/157.0.8103.38/win64/chrome-win64.zip",
+    "sha256": "ae0deef27d449e1d7529df7705d609bab102de48464da13567ed3dd2ee1a0586",
+    "size": 210600182,
     "executables": {
       "NDS_TEST_CHROME": "chrome-win64/chrome.exe"
     }
