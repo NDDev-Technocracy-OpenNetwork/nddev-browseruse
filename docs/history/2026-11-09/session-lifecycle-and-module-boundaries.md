@@ -83,3 +83,19 @@ main publication consume the successful dev/native/security artifacts of that ex
 Browser acceptance now records measured results separately from build facts. The publisher
 reconciles immutable tags and draft assets and downloads uploaded bytes before publication.
 Browser loading, store submission and contour-side deployment remain their existing owners.
+
+The first merged dev commit 1574d4d4f6b12aeac7da168dd870dbb3c6921930 passed the complete PC
+packet qualification: 147 nextest, 116 Vitest and all 84 browser/ADB-fixture cases. Full native
+macOS/Windows and security dev jobs succeeded. The public Linux dev job lacked FFmpeg, skipped
+three media cases and correctly failed the new zero-skip packet guard. Main and live installations
+therefore remained at 0.2.6. The source-consistent candidate was prepared with explicit hold
+instructions; #25 tracks the native encoder prerequisite and #24 the first automated publication.
+
+A further investigation distinguished tab-strip cleanup from Chrome's saved/synced group model.
+The unsigned-in sync-internals model was empty and supplied no proof. Chromium's file-backed
+loopback sync made actual Saved Tab Group records observable in an isolated profile without an
+account or remote sync service. Positive controls appeared before removal; ordinary tab removal,
+including the last tab in a separate window, removed the saved record. No speculative production
+cleanup change was made. Acceptance now checks real saved GUIDs for normal close, retained pages,
+host loss and five-minute expiry, while keeping the active recording's saved group until close.
+The owner-assisted legacy workflow and the cross-device effect of Chrome's Ungroup are in #23.
