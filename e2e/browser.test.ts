@@ -3410,6 +3410,51 @@ test("closing a session cleans only its own area", async () => {
   }
 });
 
+test("closing the last agent group of a window deletes its saved record", async () => {
+  const project = "sole-window";
+  const saved = await observer.newPage();
+  await saved.goto("chrome://sync-internals/");
+  const inspector = await observer.newPage();
+  await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
+  let window: number | undefined;
+  try {
+    await opened(project);
+    expect(
+      (
+        await run(
+          project,
+          `const page = await context.newPage(); await page.goto("${origin}/?sole-window"); return "ready"`,
+        )
+      ).body.value,
+    ).toBe("ready");
+    const page = await observed("/?sole-window");
+    expect(page).toBeDefined();
+    const moved = await inspector.evaluate(async (url) => {
+      const [tab] = await chrome.tabs.query({ url });
+      if (!tab || tab.groupId < 0) throw new Error("agent group missing");
+      const window = await chrome.windows.create({ url: "about:blank", focused: false });
+      const seed = window.tabs?.[0]?.id;
+      if (window.id === undefined || seed === undefined) throw new Error("test window missing");
+      const group = await chrome.tabGroups.move(tab.groupId, { windowId: window.id, index: 0 });
+      await chrome.tabs.remove(seed);
+      const tabs = await chrome.tabs.query({ windowId: group.windowId });
+      return { window: group.windowId, id: group.id, groups: tabs.map((tab) => tab.groupId) };
+    }, `${origin}/?sole-window`);
+    window = moved.window;
+    expect(moved.groups).toEqual([moved.id, moved.id]);
+    const group = await savedGroup(saved, project);
+    expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
+    expect(page?.isClosed()).toBe(true);
+    await savedGroupRemoved(saved, group);
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
+    if (window !== undefined)
+      await inspector.evaluate((id) => chrome.windows.remove(id).catch(() => {}), window);
+    await inspector.close();
+    await saved.close();
+  }
+});
+
 test("host loss automatically removes an abandoned agent group", async () => {
   const owner = await observer.newPage();
   await owner.goto(`${origin}/owner`);
