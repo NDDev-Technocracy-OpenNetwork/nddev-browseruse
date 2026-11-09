@@ -3436,15 +3436,18 @@ test("closing the last agent group of a window deletes its saved record", async 
     ).toBe("ready");
     const page = await observed("/?sole-window");
     expect(page).toBeDefined();
-    const alone = await inspector.evaluate(async ({ url, window, seed }) => {
-      const [tab] = await chrome.tabs.query({ url });
-      if (!tab || tab.groupId < 0) throw new Error("agent group missing");
-      const group = await chrome.tabGroups.get(tab.groupId);
-      if (group.windowId !== window) throw new Error("agent group left its initial window");
-      await chrome.tabs.remove(seed);
-      const tabs = await chrome.tabs.query({ windowId: group.windowId });
-      return { id: group.id, groups: tabs.map((tab) => tab.groupId) };
-    }, { ...space, url: `${origin}/?sole-window` });
+    const alone = await inspector.evaluate(
+      async ({ url, window, seed }) => {
+        const [tab] = await chrome.tabs.query({ url });
+        if (!tab || tab.groupId < 0) throw new Error("agent group missing");
+        const group = await chrome.tabGroups.get(tab.groupId);
+        if (group.windowId !== window) throw new Error("agent group left its initial window");
+        await chrome.tabs.remove(seed);
+        const tabs = await chrome.tabs.query({ windowId: group.windowId });
+        return { id: group.id, groups: tabs.map((tab) => tab.groupId) };
+      },
+      { ...space, url: `${origin}/?sole-window` },
+    );
     expect(alone.groups).toEqual([alone.id, alone.id]);
     const group = await savedGroup(saved, project);
     expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
