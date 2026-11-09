@@ -99,7 +99,10 @@ window remained open, but a corrected separate-window probe reproduced retention
 grouped tab closed. The product reproduction also failed against the previous staged extension
 after successful session close: its saved GUID remained. Retirement now ungroups the verified
 control tab before deletion and rechecks its marker, window and ungrouped state after that await.
-Owner navigation or movement during that boundary preserves the tab. Acceptance checks real
+Owner navigation or movement during that boundary preserves the tab. Moving a whole group across
+windows emits intermediate group removal events; the regression instead creates the session in
+its initial test window and verifies that window before removing its ungrouped seed tab.
+Acceptance checks real
 saved GUIDs for normal close, retained pages,
 host loss and five-minute expiry, while keeping the active recording's saved group until close.
 The owner-assisted legacy workflow and the cross-device effect of Chrome's Ungroup are in #23.

@@ -3418,6 +3418,13 @@ test("closing the last agent group of a window deletes its saved record", async 
   await inspector.goto(`chrome-extension://${extensionId}/popup.html`);
   let window: number | undefined;
   try {
+    const space = await inspector.evaluate(async () => {
+      const window = await chrome.windows.create({ url: "about:blank", focused: true });
+      const seed = window?.tabs?.[0]?.id;
+      if (window?.id === undefined || seed === undefined) throw new Error("test window missing");
+      return { window: window.id, seed };
+    });
+    window = space.window;
     await opened(project);
     expect(
       (
@@ -3429,20 +3436,16 @@ test("closing the last agent group of a window deletes its saved record", async 
     ).toBe("ready");
     const page = await observed("/?sole-window");
     expect(page).toBeDefined();
-    const moved = await inspector.evaluate(async (url) => {
+    const alone = await inspector.evaluate(async ({ url, window, seed }) => {
       const [tab] = await chrome.tabs.query({ url });
       if (!tab || tab.groupId < 0) throw new Error("agent group missing");
-      const window = await chrome.windows.create({ url: "about:blank", focused: false });
-      const seed = window?.tabs?.[0]?.id;
-      if (window?.id === undefined || seed === undefined) throw new Error("test window missing");
-      const group = await chrome.tabGroups.move(tab.groupId, { windowId: window.id, index: 0 });
-      if (!group) throw new Error("test group missing");
+      const group = await chrome.tabGroups.get(tab.groupId);
+      if (group.windowId !== window) throw new Error("agent group left its initial window");
       await chrome.tabs.remove(seed);
       const tabs = await chrome.tabs.query({ windowId: group.windowId });
-      return { window: group.windowId, id: group.id, groups: tabs.map((tab) => tab.groupId) };
-    }, `${origin}/?sole-window`);
-    window = moved.window;
-    expect(moved.groups).toEqual([moved.id, moved.id]);
+      return { id: group.id, groups: tabs.map((tab) => tab.groupId) };
+    }, { ...space, url: `${origin}/?sole-window` });
+    expect(alone.groups).toEqual([alone.id, alone.id]);
     const group = await savedGroup(saved, project);
     expect((await cli("session", "close", project, "--close-tabs")).code).toBe(0);
     expect(page?.isClosed()).toBe(true);
