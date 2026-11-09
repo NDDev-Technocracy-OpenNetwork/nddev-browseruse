@@ -22,6 +22,10 @@ The extension stores preferences locally, including access, observation,
 language, private-site rules and group membership. The host stores its local
 configuration, session artifacts and any activity journal separately.
 
+Chrome can independently save and sync group titles and tab URLs under your browser/account
+settings. Closing a whole window can retain a saved group. Ungrouping or deleting it in Chrome
+also affects devices using that account. Observation profiles do not change browser sync settings.
+
 ## Observation and storage
 
 New installations and upgrades requiring renewed disclosure keep effective observation
@@ -83,7 +87,7 @@ are visible in this file's public history.
 # Политика конфиденциальности nddev-browseruse
 
 Политика относится к расширению nddev-browseruse для Chromium и его локальному
-хосту. Самостоятельная реализация пока проходит проверку перед выпуском.
+хосту. Проверенные платформы и ограничения указаны в протоколе каждого выпуска.
 
 ## Доступ к браузеру
 
@@ -101,6 +105,11 @@ DOM, адреса, сетевую активность и сообщения к�
 
 Расширение локально хранит настройки доступа, наблюдения, языка, приватных
 сайтов и групп. Хост отдельно хранит конфигурацию, артефакты и журнал активности.
+
+Chrome может отдельно сохранять и синхронизировать названия групп и адреса вкладок согласно
+настройкам браузера и аккаунта. Закрытие всего окна может оставить сохранённую группу.
+Разгруппировка или удаление группы в Chrome затрагивает и устройства с тем же аккаунтом.
+Профиль наблюдения не меняет настройки синхронизации браузера.
 
 ## Наблюдение и хранение
 

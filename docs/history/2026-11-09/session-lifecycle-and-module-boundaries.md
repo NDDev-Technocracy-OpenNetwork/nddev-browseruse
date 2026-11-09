@@ -111,3 +111,10 @@ The final provider audit found the test browser still pinned to the previous lin
 Chrome-for-Testing metadata supplies the selected stable fixture for Linux x64, macOS arm64 and
 Windows x64. Each archive was downloaded on the build PC, measured, SHA-256 pinned and ZIP-CRC
 checked before updating provider.lock.json. This changes test artifacts, not an installed browser.
+
+The final otherwise-empty-window fixture was red against the original staged extension and green
+with the retirement fix on Chrome-for-Testing 157. It validates the initial window and saved GUID
+before closing, rather than moving the group through Chrome's intermediate removal events.
+Privacy policy, five-language store copy and reviewer notes now distinguish local product
+analytics from Chrome's independent saving/sync of group titles and tab URLs. Externally closing
+a whole window remains the scoped recovery investigation in #27.

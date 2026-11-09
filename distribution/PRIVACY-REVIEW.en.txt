@@ -14,6 +14,9 @@ console/dialog and download information to its local native host and requesting
 agent. Explicit owner-configured remote-device transport returns results/artifacts
 to its caller. If that agent uses an online AI provider, its provider policy applies.
 Do not claim that all data always stays on one device or that no user data is handled.
+Chrome's own browser/account settings can separately save and sync group titles and tab URLs.
+Closing a whole window can retain a saved group. Ungroup/Delete group in Chrome affects that
+account's other devices; the product's observation profile does not change browser sync settings.
 
 Retention and controls
 New/renewed disclosure pauses agent access and effective observation until a choice.
