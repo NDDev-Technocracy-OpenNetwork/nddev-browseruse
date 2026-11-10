@@ -1,5 +1,8 @@
 //! Store copy and code-native artwork around authentic isolated-browser captures.
-use super::{Result, complete, copy_tree, product_version, source_commit, test_browser, tool};
+use super::{
+    Result, browser_environment, complete, copy_tree, product_version, source_commit, test_browser,
+    tool,
+};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path, process::Command};
@@ -185,6 +188,9 @@ pub(super) fn prepare(captures: &Path, output: &Path) -> Result {
     )?;
     let mut render = Command::new(tool("bun"));
     render.arg("e2e/render-store.ts").arg(&plan);
+    // The renderer launches the same sandboxed browser as the acceptance run, so it needs the
+    // same sandbox helper.
+    browser_environment(&mut render)?;
     complete(render)?;
     let mut sums = String::new();
     for frame in &frames {
