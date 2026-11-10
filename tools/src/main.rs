@@ -241,7 +241,36 @@ fn prepared_path(command: &mut Command) -> Result {
     Ok(())
 }
 
+/// The video cases need ffmpeg, and GitHub's Linux image carries none. On that runner alone,
+/// setup installs the build of the image's own distribution, so the Linux packet qualification
+/// executes every browser case. Every other host keeps the ffmpeg its owner provides.
+fn hosted_ffmpeg() -> Result {
+    if std::env::consts::OS != "linux"
+        || std::env::var("RUNNER_ENVIRONMENT").as_deref() != Ok("github-hosted")
+        || capture("ffmpeg", &["-version"]).is_ok()
+    {
+        return Ok(());
+    }
+    run("sudo", &["apt-get", "update", "--quiet"])?;
+    run(
+        "sudo",
+        &[
+            "apt-get",
+            "install",
+            "--yes",
+            "--no-install-recommends",
+            "ffmpeg",
+        ],
+    )?;
+    println!(
+        "ffmpeg for the video cases: {}",
+        capture("dpkg-query", &["--show", "ffmpeg"])?
+    );
+    Ok(())
+}
+
 fn setup() -> Result {
+    hosted_ffmpeg()?;
     let root = std::env::current_dir()?;
     fs::create_dir_all(".tools/bin")?;
     let package: Value = serde_json::from_slice(&fs::read("package.json")?)?;
