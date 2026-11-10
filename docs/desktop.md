@@ -98,6 +98,8 @@ packet, measured browser report, extension ZIPs, authentic captures and rendered
 material. The archive contains hidden runtime files and retains executable modes.
 Other supported platforms still run native acceptance through `just verify`;
 the Linux CI result supplies the common store packet.
+GitHub's Linux image carries no ffmpeg, so on that runner `just setup` installs the build
+of the image's distribution, and the qualification executes the video cases with it.
 Pull requests run `just check` and `just test` on each native target; the full
 dev run qualifies its staged browser/native packet once before promotion.
 
