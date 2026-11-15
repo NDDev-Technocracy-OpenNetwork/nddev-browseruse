@@ -14,13 +14,13 @@
     "playwright-core": "1.65.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.5",
+    "@biomejs/biome": "2.6.7",
     "@types/bun": "1.4.4",
     "@types/chrome": "0.3.7",
     "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "oxlint": "1.93.0",
-    "oxlint-tsgolint": "7.0.2006",
+    "oxlint-tsgolint": "7.0.2007",
     "knip": "6.45.1",
     "i18next": "27.1.1",
     "i18next-icu": "2.7.0",
