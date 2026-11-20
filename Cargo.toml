@@ -13,7 +13,7 @@ members = ["tools", "crates/contract", "crates/client", "crates/local-transport"
 resolver = "3"
 
 [workspace.package]
-version = "0.2.9"
+version = "0.2.8"
 
 [workspace.dependencies]
 nddev-browseruse-contract = { path = "crates/contract" }
