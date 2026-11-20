@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-browseruse"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "base64",
  "futures-util",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-browseruse-client"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "nddev-browseruse-contract",
  "nddev-browseruse-local-transport",
@@ -353,7 +353,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-browseruse-contract"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -364,7 +364,7 @@ dependencies = [
 
 [[package]]
 name = "nddev-browseruse-local-transport"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
  "async-io",
  "futures-io",
