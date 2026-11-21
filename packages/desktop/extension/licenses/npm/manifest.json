@@ -18,10 +18,10 @@
     "version": "2.1.12"
   },
   {
-    "file": "i18next-27.1.1.txt",
+    "file": "i18next-27.2.1.txt",
     "license": "MIT",
     "name": "i18next",
-    "version": "27.1.1"
+    "version": "27.2.1"
   },
   {
     "file": "i18next-icu-2.7.0.txt",
@@ -48,10 +48,10 @@
     "version": "19.3.1"
   },
   {
-    "file": "react-i18next-18.0.1.txt",
+    "file": "react-i18next-18.0.2.txt",
     "license": "MIT",
     "name": "react-i18next",
-    "version": "18.0.1"
+    "version": "18.0.2"
   },
   {
     "file": "scheduler-0.28.0.txt",
