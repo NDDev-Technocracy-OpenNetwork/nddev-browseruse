@@ -2,7 +2,7 @@ name: promotion
 
 on:
   workflow_run: # zizmor: ignore[dangerous-triggers] only same-repository dev push; no run code or artifacts are consumed
-    workflows: [ci, native]
+    workflows: [check, native]
     types: [completed]
     branches: [dev]
   workflow_dispatch: {}
