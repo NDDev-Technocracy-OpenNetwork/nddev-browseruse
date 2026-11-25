@@ -48,8 +48,10 @@ Other cases:
 - Output is cut at 10000 characters; narrow it with `search` or a `locator` instead.
 - A failed script prints the same text with `Error: ...` on stderr and exits 1.
 - A refusal by the host prints `Error (code): message` and exits 2.
-- `executor_unavailable` means the session's executor ended, for example when it was updated.
-  Its `state` is gone and the tabs stay; run again, and a new executor starts with them.
+- `executor_unavailable` on `session new` means the host's configured Bun runtime or executor
+  script is missing or invalid; check `nddev-browseruse status` for `executor_error`. On an active
+  session, `executor_unavailable` means the session's executor ended, for example when it was
+  updated; its `state` is gone and the tabs stay, so run again and a new executor starts with them.
 - `--json` prints the full answer instead, including each tab's `target` and `document`.
 - `--expect <target>:<document>` refuses to run against a replaced document.
 

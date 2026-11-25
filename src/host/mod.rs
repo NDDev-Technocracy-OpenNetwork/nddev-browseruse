@@ -61,6 +61,9 @@ pub struct Config {
     pub runtime: PathBuf,
     pub bun: PathBuf,
     pub executor: PathBuf,
+    /// Installed `host.json`, reloaded live when present so runtime repairs take effect without
+    /// restarting the browser.
+    pub host_config: Option<PathBuf>,
     /// The activity journal's root: one directory per project (docs/observability.md).
     pub activity: PathBuf,
     /// The root of the session areas (`runtime::sessions_directory`).
@@ -1541,6 +1544,7 @@ impl Host {
     async fn handle(&self, request: Request) -> Reply {
         let result = match request {
             Request::Capabilities => {
+                let runtime_ready = self.resolve_runtime().is_ok();
                 let state = self.state();
                 Ok(Reply::Capabilities(view::Capabilities {
                     protocol: crate::protocol::VERSION,
@@ -1550,7 +1554,7 @@ impl Host {
                             .unwrap_or("unknown")
                             .to_owned(),
                     },
-                    browser_ready: Self::ready(&state).is_ok(),
+                    browser_ready: Self::ready(&state).is_ok() && runtime_ready,
                     owned_sessions: true,
                     cancellation: true,
                     drained_close: true,
@@ -1564,6 +1568,7 @@ impl Host {
                 }))
             }
             Request::Status => {
+                let runtime_error = self.resolve_runtime().err();
                 let state = self.state();
                 Ok(Reply::Status(view::Status {
                     enabled: state.enabled,
@@ -1583,6 +1588,8 @@ impl Host {
                     }),
                     compatible: (state.connected && state.contract != Some(CONTRACT))
                         .then_some(false),
+                    executor_ready: runtime_error.map(|_| false),
+                    executor_error: runtime_error.map(|error| error.code().to_owned()),
                 }))
             }
             Request::Update => {
@@ -1592,10 +1599,12 @@ impl Host {
                     };
                 }
                 let reload = self.update();
+                let config_replaced = self.host_config_replaced();
                 // A reloading extension starts the installed host anyway. Otherwise a replaced
-                // binary takes over once no session needs this host: it ends after this reply.
+                // binary or valid host configuration takes over once no session needs this host:
+                // it ends after this reply.
                 let restart = !reload
-                    && self.binary.as_ref().is_some_and(Binary::replaced)
+                    && (self.binary.as_ref().is_some_and(Binary::replaced) || config_replaced)
                     && self.state().sessions.is_empty();
                 Ok(Reply::Updated { reload, restart })
             }
@@ -1658,6 +1667,30 @@ impl Host {
     ) -> Result<Arc<SessionLife>, Refusal> {
         Self::ready(&self.state())?;
         self.session_life(project, generation)
+    }
+
+    /// Resolves and validates the current Bun runtime and executor script paths. When a `host.json`
+    /// path is configured, it is reloaded live and fails closed on missing or malformed content.
+    fn resolve_runtime(&self) -> Result<(PathBuf, PathBuf), executor::RuntimeError> {
+        let (bun, script) = match self.config.host_config.as_deref() {
+            Some(path) => crate::install::read_host_config(path)
+                .map_err(|_| executor::RuntimeError::ConfigInvalid)?,
+            None => (self.config.bun.clone(), self.config.executor.clone()),
+        };
+        executor::check_runtime(&bun, &script)?;
+        Ok((bun, script))
+    }
+
+    /// Whether `host.json` now parses validly with different runtime paths than the host started
+    /// with. Malformed files never trigger a restart.
+    fn host_config_replaced(&self) -> bool {
+        let Some(path) = self.config.host_config.as_deref() else {
+            return false;
+        };
+        let Ok((bun, script)) = crate::install::read_host_config(path) else {
+            return false;
+        };
+        bun != self.config.bun || script != self.config.executor
     }
 
     fn ready(state: &State) -> Result<(), Refusal> {
@@ -1761,6 +1794,18 @@ impl Host {
                 return Err(refusal);
             }
         }
+        if !protocol::valid_project(project) {
+            return Err(Refusal::InvalidProject);
+        }
+        if let Err(error) = self.resolve_runtime() {
+            executor::report_failure(error);
+            tracing::warn!(
+                event.name = "browser.session.opened",
+                outcome = "rejected",
+                error.type = Refusal::ExecutorUnavailable.code()
+            );
+            return Err(Refusal::ExecutorUnavailable);
+        }
         let life = self.reserve(project, false)?;
         self.open_generation(project, &life).await
     }
@@ -1773,7 +1818,8 @@ impl Host {
         let mut executor = tokio::time::timeout(EXTENSION_REPLY, life.executor.lock())
             .await
             .map_err(|_| Refusal::Timeout)?;
-        let (endpoint, artifacts) = {
+        let runtime = self.resolve_runtime();
+        let (bun, script, endpoint, artifacts) = {
             let mut state = self.state();
             Self::ready(&state)?;
             let session = state
@@ -1787,10 +1833,24 @@ impl Host {
             if session.opened {
                 return Ok(view_session(&mut state, project));
             }
+            let (bun, script) = match runtime {
+                Ok(paths) => paths,
+                Err(error) => {
+                    executor::report_failure(error);
+                    tracing::warn!(
+                        event.name = "browser.session.opened",
+                        outcome = "rejected",
+                        error.type = Refusal::ExecutorUnavailable.code()
+                    );
+                    return Err(Refusal::ExecutorUnavailable);
+                }
+            };
             runtime::private_directory(&session.artifacts)
                 .map_err(|_| Refusal::ExecutorUnavailable)?;
             session.opened = true;
             (
+                bun,
+                script,
                 runtime::socket_url(&self.cdp_socket, &format!("/session/{}", session.token)),
                 session.artifacts.clone(),
             )
@@ -1842,9 +1902,12 @@ impl Host {
                 }
             }
         }
-        if let Ok(started) = executor::Executor::start(&self.config, &endpoint, &artifacts) {
-            *executor = Some(started);
-            life.started.store(true, Ordering::Release);
+        match executor::Executor::start(&bun, &script, &endpoint, &artifacts) {
+            Ok(started) => {
+                *executor = Some(started);
+                life.started.store(true, Ordering::Release);
+            }
+            Err(error) => executor::report_failure(error),
         }
         tracing::info!(event.name = "browser.session.opened", outcome = "ok");
         Ok(view_session(&mut self.state(), project))
@@ -2229,16 +2292,42 @@ impl Host {
             metrics_epoch: self.config.diagnostics.epoch_token(),
             failed: true,
         };
+        // An executor that failed before ever reporting ready held no script state; replace it
+        // cleanly instead of leaving the session stuck on a stale startup failure.
+        if executor
+            .as_mut()
+            .is_some_and(executor::Executor::failed_before_ready)
+            && let Err(refusal) = self.stop_executor(project, life, &mut executor).await
+        {
+            running.finished = true;
+            return Err(refusal);
+        }
         if executor.is_none() {
-            if life.started.load(Ordering::Acquire) {
-                self.refresh(project, life).await?;
+            let (bun, script) = match self.resolve_runtime() {
+                Ok(paths) => paths,
+                Err(error) => {
+                    executor::report_failure(error);
+                    running.finished = true;
+                    return Err(Refusal::ExecutorUnavailable);
+                }
+            };
+            if life.started.load(Ordering::Acquire)
+                && let Err(refusal) = self.refresh(project, life).await
+            {
+                running.finished = true;
+                return Err(refusal);
             }
-            *executor = Some(executor::Executor::start(
-                &self.config,
-                &endpoint,
-                &artifacts,
-            )?);
-            life.started.store(true, Ordering::Release);
+            match executor::Executor::start(&bun, &script, &endpoint, &artifacts) {
+                Ok(started) => {
+                    *executor = Some(started);
+                    life.started.store(true, Ordering::Release);
+                }
+                Err(error) => {
+                    executor::report_failure(error);
+                    running.finished = true;
+                    return Err(Refusal::ExecutorUnavailable);
+                }
+            }
         }
         let current = executor.as_mut().unwrap();
         let ready = tokio::select! {

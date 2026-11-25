@@ -7,6 +7,8 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
     let runtime = root.path().join("runtime");
     runtime::private_directory(&runtime).unwrap();
     runtime::private_directory(&runtime.join("sessions")).unwrap();
+    let executor = root.path().join("inert.ts");
+    std::fs::write(&executor, b"").unwrap();
     let (outbound, queue) = mpsc::channel(16);
     let host = Arc::new(Host {
         config: Config {
@@ -51,7 +53,8 @@ fn fixture() -> (Arc<Host>, mpsc::Receiver<Vec<u8>>, tempfile::TempDir) {
             diagnostics: crate::diagnostics::Policy::default(),
             runtime: runtime.clone(),
             bun: std::env::current_exe().unwrap(),
-            executor: root.path().join("inert.ts"),
+            executor,
+            host_config: None,
             activity: root.path().join("activity"),
             sessions: runtime.join("sessions"),
         },
@@ -1603,4 +1606,389 @@ async fn off_drains_the_writer_and_rejects_activity_already_waiting_for_it() {
             .unwrap()
             .is_empty()
     );
+}
+
+fn fixture_with_host_config(
+    bun: PathBuf,
+    executor: PathBuf,
+) -> (
+    Arc<Host>,
+    mpsc::Receiver<Vec<u8>>,
+    tempfile::TempDir,
+    PathBuf,
+) {
+    let (base, queue, root) = fixture();
+    let host_config = root.path().join("host.json");
+    std::fs::write(
+        &host_config,
+        serde_json::to_vec(&json!({ "bun": bun, "executor": executor })).unwrap(),
+    )
+    .unwrap();
+    let host = Arc::new(Host {
+        config: Config {
+            lifecycle: base.config.lifecycle.clone(),
+            executor_settings: base.config.executor_settings.clone(),
+            diagnostics: base.config.diagnostics.clone(),
+            runtime: base.config.runtime.clone(),
+            bun,
+            executor,
+            host_config: Some(host_config.clone()),
+            activity: base.config.activity.clone(),
+            sessions: base.config.sessions.clone(),
+        },
+        installed: None,
+        cdp_socket: base.cdp_socket.clone(),
+        outbound: base.outbound.clone(),
+        pending: Mutex::default(),
+        next_request: AtomicU64::new(1),
+        state: Mutex::new(State {
+            connected: true,
+            enabled: true,
+            contract: Some(CONTRACT),
+            ..State::default()
+        }),
+        binary: None,
+        restart: tokio::sync::Notify::new(),
+    });
+    (host, queue, root, host_config)
+}
+
+#[tokio::test]
+async fn status_capabilities_and_open_reflect_live_host_config_and_fail_closed() {
+    let root = tempfile::tempdir().unwrap();
+    let valid_bun = std::env::current_exe().unwrap();
+    let valid_executor = root.path().join("executor.ts");
+    std::fs::write(&valid_executor, b"").unwrap();
+    let (host, mut queue, _host_root, host_config) =
+        fixture_with_host_config(valid_bun.clone(), valid_executor.clone());
+
+    // Healthy runtime omits optional executor status fields and reports browser_ready.
+    let Reply::Status(status) = host.handle(Request::Status).await else {
+        panic!("status not returned");
+    };
+    assert!(status.enabled);
+    assert_eq!(status.executor_ready, None);
+    assert_eq!(status.executor_error, None);
+    let Reply::Capabilities(caps) = host.handle(Request::Capabilities).await else {
+        panic!("capabilities not returned");
+    };
+    assert!(caps.browser_ready);
+    assert!(matches!(
+        host.handle(Request::Update).await,
+        Reply::Updated {
+            reload: false,
+            restart: false
+        }
+    ));
+
+    // Missing bun: status reports bun_missing, capabilities.browser_ready is false, and open
+    // refuses before claiming a browser group or leaking a session reservation.
+    let missing_bun = root.path().join("missing-bun-path");
+    std::fs::write(
+        &host_config,
+        serde_json::to_vec(&json!({ "bun": missing_bun, "executor": valid_executor })).unwrap(),
+    )
+    .unwrap();
+    let Reply::Status(status) = host.handle(Request::Status).await else {
+        panic!("status not returned");
+    };
+    assert!(status.enabled);
+    assert_eq!(status.executor_ready, Some(false));
+    assert_eq!(status.executor_error.as_deref(), Some("bun_missing"));
+    let Reply::Capabilities(caps) = host.handle(Request::Capabilities).await else {
+        panic!("capabilities not returned");
+    };
+    assert!(!caps.browser_ready);
+    assert!(matches!(
+        host.handle(Request::Open {
+            project: "broken".into()
+        })
+        .await,
+        Reply::Refused {
+            refusal: Refusal::ExecutorUnavailable
+        }
+    ));
+    assert!(host.state().sessions.is_empty());
+    assert!(queue.try_recv().is_err());
+
+    // Owned open also refuses before claiming a browser group.
+    let owned = host.create_owned("owned-broken").unwrap();
+    assert!(matches!(
+        host.handle(Request::OpenOwned {
+            session: owned.clone()
+        })
+        .await,
+        Reply::Refused {
+            refusal: Refusal::ExecutorUnavailable
+        }
+    ));
+    assert!(!host.state().sessions["owned-broken"].opened);
+    assert!(queue.try_recv().is_err());
+    assert!(matches!(
+        host.handle(Request::CloseOwned {
+            session: owned,
+            close_tabs: false
+        })
+        .await,
+        Reply::Closed
+    ));
+
+    // Non-executable bun on Unix reports bun_not_executable.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let non_exec = root.path().join("non-exec-bun");
+        std::fs::write(&non_exec, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&non_exec, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(
+            &host_config,
+            serde_json::to_vec(&json!({ "bun": non_exec, "executor": valid_executor })).unwrap(),
+        )
+        .unwrap();
+        let Reply::Status(status) = host.handle(Request::Status).await else {
+            panic!("status not returned");
+        };
+        assert_eq!(status.executor_ready, Some(false));
+        assert_eq!(status.executor_error.as_deref(), Some("bun_not_executable"));
+    }
+
+    // Missing executor script reports executor_missing.
+    std::fs::write(
+        &host_config,
+        serde_json::to_vec(&json!({
+            "bun": valid_bun,
+            "executor": root.path().join("missing-executor.ts")
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let Reply::Status(status) = host.handle(Request::Status).await else {
+        panic!("status not returned");
+    };
+    assert_eq!(status.executor_ready, Some(false));
+    assert_eq!(status.executor_error.as_deref(), Some("executor_missing"));
+
+    // Malformed or deleted host.json fails closed (never falls back to startup paths) and never
+    // asks an idle host to restart into an invalid configuration.
+    for broken in [
+        "{not-json".to_owned(),
+        json!({ "bun": "relative/bun", "executor": valid_executor }).to_string(),
+        json!({ "bun": valid_bun, "executor": valid_executor, "extra": 1 }).to_string(),
+    ] {
+        std::fs::write(&host_config, broken).unwrap();
+        let Reply::Status(status) = host.handle(Request::Status).await else {
+            panic!("status not returned");
+        };
+        assert_eq!(status.executor_ready, Some(false));
+        assert_eq!(status.executor_error.as_deref(), Some("config_invalid"));
+        assert!(matches!(
+            host.handle(Request::Update).await,
+            Reply::Updated {
+                reload: false,
+                restart: false
+            }
+        ));
+    }
+    std::fs::remove_file(&host_config).unwrap();
+    let Reply::Status(status) = host.handle(Request::Status).await else {
+        panic!("status not returned");
+    };
+    assert_eq!(status.executor_ready, Some(false));
+    assert_eq!(status.executor_error.as_deref(), Some("config_invalid"));
+
+    // Repairing host.json to a different valid executor restores health live and allows `update`
+    // to restart an idle host (but not while a session is open).
+    let repaired_executor = root.path().join("repaired-executor.ts");
+    std::fs::write(&repaired_executor, b"").unwrap();
+    std::fs::write(
+        &host_config,
+        serde_json::to_vec(&json!({ "bun": valid_bun, "executor": repaired_executor })).unwrap(),
+    )
+    .unwrap();
+    let Reply::Status(status) = host.handle(Request::Status).await else {
+        panic!("status not returned");
+    };
+    assert_eq!(status.executor_ready, None);
+    assert_eq!(status.executor_error, None);
+    let Reply::Capabilities(caps) = host.handle(Request::Capabilities).await else {
+        panic!("capabilities not returned");
+    };
+    assert!(caps.browser_ready);
+
+    let active = host.create_owned("active").unwrap();
+    assert!(matches!(
+        host.handle(Request::Update).await,
+        Reply::Updated {
+            reload: false,
+            restart: false
+        }
+    ));
+    assert!(matches!(
+        host.handle(Request::CloseOwned {
+            session: active,
+            close_tabs: false
+        })
+        .await,
+        Reply::Closed
+    ));
+    assert!(matches!(
+        host.handle(Request::Update).await,
+        Reply::Updated {
+            reload: false,
+            restart: true
+        }
+    ));
+    host.shutdown().await.unwrap();
+}
+
+#[test]
+fn executor_failure_diagnostics_emit_only_fixed_class_without_paths() {
+    #[derive(Clone)]
+    struct Buffer(Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let root = tempfile::tempdir().unwrap();
+    let missing_bun = root.path().join("secret-runtime-dir/missing-bun");
+    let valid_executor = root.path().join("executor.ts");
+    std::fs::write(&valid_executor, b"").unwrap();
+    let (host, _queue, _host_root, _host_config) =
+        fixture_with_host_config(missing_bun, valid_executor);
+
+    let policy = crate::diagnostics::Policy::default();
+    policy.set(crate::diagnostics::Observation::Standard);
+    let output = Buffer(Arc::new(std::sync::Mutex::new(Vec::new())));
+    let (collector, guard) = crate::diagnostics::test_subscriber(policy, output.clone()).unwrap();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    tracing::subscriber::with_default(collector, || {
+        let reply = runtime.block_on(host.handle(Request::Open {
+            project: "diag".into(),
+        }));
+        assert!(matches!(
+            reply,
+            Reply::Refused {
+                refusal: Refusal::ExecutorUnavailable
+            }
+        ));
+    });
+    drop(guard);
+
+    let raw = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+    assert!(!raw.contains("secret-runtime-dir"));
+    assert!(!raw.contains("missing-bun"));
+    let events: Vec<Value> = raw
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert!(events.iter().any(|event| {
+        event["event.name"] == "browser.executor.failed"
+            && event["outcome"] == "error"
+            && event["error.type"] == "bun_missing"
+    }));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn stale_startup_failure_respawns_while_ready_exit_reports_state_loss_once() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let script = root.path().join("executor.ts");
+    std::fs::write(&script, b"").unwrap();
+    let fake_bun = root.path().join("fake-bun.sh");
+    std::fs::write(
+        &fake_bun,
+        "#!/bin/sh\nprintf '{\"ready\":true}\\n'\nIFS= read -r _line\nprintf '{\"id\":1,\"ok\":true,\"output\":\"[return value] 42\",\"truncated\":false}\\n'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake_bun, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let (host, mut queue, _host_root, host_config) =
+        fixture_with_host_config(root.path().join("initially-missing-bun"), script.clone());
+    let handle = host.create_owned("recovery").unwrap();
+    let life = host
+        .session_life(handle.project(), Some(handle.generation()))
+        .unwrap();
+    {
+        let mut state = host.state();
+        let session = state.sessions.get_mut("recovery").unwrap();
+        runtime::private_directory(&session.artifacts).unwrap();
+        session.opened = true;
+    }
+
+    // 1. Stale startup failure (never reached ready): once host.json is repaired, the next run
+    // replaces the failed process cleanly without requiring a double execute.
+    *life.executor.lock().await = Some(executor::owned_exiting_test_child().await);
+    std::fs::write(
+        &host_config,
+        serde_json::to_vec(&json!({ "bun": fake_bun, "executor": script })).unwrap(),
+    )
+    .unwrap();
+    let first = {
+        let host = host.clone();
+        let life = life.clone();
+        tokio::spawn(async move { host.run("recovery", &life, "1 + 1", 5_000, None).await })
+    };
+    let tabs_req = message(&mut queue).await;
+    assert_eq!(tabs_req["type"], "tabs");
+    answer(&host, &tabs_req);
+    let outcome = first.await.unwrap().unwrap();
+    assert_eq!(outcome.output, "[return value] 42");
+    assert!(outcome.failure.is_none());
+
+    // 2. The fake executor exits immediately after answering one script. Once it has exited,
+    // `session list` truthfully reports `executor: false`, the next execute signals
+    // `executor_unavailable` once (indicating lost JS state), and the following execute refreshes
+    // the group and spawns a fresh executor.
+    tokio::time::timeout(CONTROL_IO, async {
+        loop {
+            let Reply::Sessions { sessions } = host.handle(Request::Sessions).await else {
+                panic!("sessions not returned");
+            };
+            if sessions.len() == 1 && !sessions[0].executor {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(
+        host.run("recovery", &life, "1 + 1", 5_000, None)
+            .await
+            .err(),
+        Some(Refusal::ExecutorUnavailable)
+    );
+    assert!(life.executor.lock().await.is_none());
+    assert!(!host.state().sessions["recovery"].closing);
+
+    let second = {
+        let host = host.clone();
+        let life = life.clone();
+        tokio::spawn(async move { host.run("recovery", &life, "1 + 1", 5_000, None).await })
+    };
+    let release = message(&mut queue).await;
+    assert_eq!(release["type"], "release");
+    answer(&host, &release);
+    let claim = message(&mut queue).await;
+    assert_eq!(claim["type"], "claim");
+    answer(&host, &claim);
+    let tabs_req = message(&mut queue).await;
+    assert_eq!(tabs_req["type"], "tabs");
+    answer(&host, &tabs_req);
+    let outcome = second.await.unwrap().unwrap();
+    assert_eq!(outcome.output, "[return value] 42");
+    host.shutdown().await.unwrap();
 }

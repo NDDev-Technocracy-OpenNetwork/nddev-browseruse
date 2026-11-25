@@ -344,6 +344,14 @@ pub fn install(policy: Policy) -> Result<Guard, InstallError> {
 }
 
 #[cfg(test)]
+pub(crate) fn test_subscriber(
+    policy: Policy,
+    output: impl Write + Send + 'static,
+) -> std::io::Result<(impl Subscriber + Send + Sync, Guard)> {
+    subscriber(policy, output)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;

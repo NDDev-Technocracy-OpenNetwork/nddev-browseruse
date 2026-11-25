@@ -10,9 +10,11 @@ metadata field. Protocol version 2 remains compatible with the existing host.
 
 The embedding application constructs the client and passes cancellation into
 each operation. First call `capabilities` (or `nddev-browseruse capabilities`): it reports the
-loaded protocol, host build, browser readiness, lifecycle support and effective limits without
-creating a session. Discovery is a separate operation; the existing Status reply shape is
-unchanged. An older host can refuse discovery instead of implicitly promising support.
+loaded protocol, host build, browser readiness (including executor runtime readiness), lifecycle
+support and effective limits without creating a session. Discovery is a separate operation; a
+healthy `Status` reply keeps the unchanged shape, and adds optional `executor_ready: false` and
+`executor_error` fields only when the configured executor runtime cannot start. An older host can
+refuse discovery instead of implicitly promising support.
 
 Create an owned generation, open it, execute against it, then request close and retain the handle
 until the host acknowledges its drain. Canceling one exchange does not acknowledge that drain.
