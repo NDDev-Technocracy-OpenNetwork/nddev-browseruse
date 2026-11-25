@@ -137,7 +137,15 @@ sessions before changing the host, then reconnect it without restarting the brow
 Never stop another task's native host while its sessions are active.
 
 Run the CLI by its absolute path, or put its `bin` directory on PATH. `status` must
-report `enabled: true` before a task starts. The public skill is included under
+report `enabled: true` without `executor_ready: false` before a task starts. When the configured
+Bun runtime or executor script is missing, non-executable or unreadable (or `host.json` is
+malformed), `status` includes `executor_ready: false` and a fixed `executor_error` class,
+`capabilities.browser_ready` reports `false`, and `session new` refuses early with
+`executor_unavailable` without opening an empty tab group. The host reloads `host.json` live on
+health checks and executor starts (failing closed on malformed files without falling back to
+defaults), so repairing the runtime or `host.json` restores sessions without restarting Chrome.
+`update` also restarts an idle host when `host.json` changes to a valid new runtime path.
+The public skill is included under
 `skills/nddev-browseruse`; registration does not change global skills.
 
 The native host can register one browser through `nddev-browseruse install`.

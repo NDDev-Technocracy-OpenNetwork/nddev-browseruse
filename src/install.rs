@@ -158,6 +158,26 @@ struct HostConfig {
     executor: PathBuf,
 }
 
+const HOST_CONFIG_LIMIT: u64 = 65_536;
+
+/// Reads and validates a `host.json` file without falling back to defaults.
+pub(crate) fn read_host_config(path: &Path) -> Result<(PathBuf, PathBuf), IoError> {
+    let metadata = std::fs::metadata(path).map_err(|_| IoError::Unavailable)?;
+    if !metadata.is_file() || metadata.len() > HOST_CONFIG_LIMIT {
+        return Err(IoError::InvalidConfiguration);
+    }
+    let bytes = std::fs::read(path).map_err(|_| IoError::Unavailable)?;
+    if bytes.len() as u64 > HOST_CONFIG_LIMIT {
+        return Err(IoError::InvalidConfiguration);
+    }
+    let config: HostConfig =
+        serde_json::from_slice(&bytes).map_err(|_| IoError::InvalidConfiguration)?;
+    if !config.bun.is_absolute() || !config.executor.is_absolute() {
+        return Err(IoError::InvalidConfiguration);
+    }
+    Ok((config.bun, config.executor))
+}
+
 #[derive(Serialize)]
 struct HostManifest<'a> {
     name: &'a str,
@@ -238,17 +258,17 @@ pub fn install_with_options(
 }
 
 pub fn load() -> Result<Config, IoError> {
-    let bytes = std::fs::read(config_path()?).map_err(|_| IoError::Unavailable)?;
-    let config: HostConfig =
-        serde_json::from_slice(&bytes).map_err(|_| IoError::InvalidConfiguration)?;
+    let path = config_path()?;
+    let (bun, executor) = read_host_config(&path)?;
     let settings = crate::configuration::load()?;
     Ok(Config {
         lifecycle: settings.public.lifecycle,
         executor_settings: settings.executor,
         diagnostics: crate::diagnostics::Policy::default(),
         runtime: runtime::directory()?,
-        bun: config.bun,
-        executor: config.executor,
+        bun,
+        executor,
+        host_config: Some(path),
         activity: state_dir()?.join("activity"),
         sessions: runtime::sessions_directory()?,
     })
@@ -373,6 +393,45 @@ mod tests {
             0o600
         );
         assert_eq!(std::fs::read(&path).unwrap(), b"{}\n");
+    }
+
+    #[test]
+    fn host_config_rejects_malformed_relative_unknown_missing_and_oversized_files() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("host.json");
+        let bun = root.path().join("bun");
+        let executor = root.path().join("executor.ts");
+
+        assert!(matches!(read_host_config(&path), Err(IoError::Unavailable)));
+
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "bun": bun,
+                "executor": executor,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            read_host_config(&path).unwrap(),
+            (bun.clone(), executor.clone())
+        );
+
+        // Relative paths, unknown fields, invalid JSON and oversized payloads are refused.
+        for body in [
+            serde_json::json!({ "bun": "relative/bun", "executor": executor }).to_string(),
+            serde_json::json!({ "bun": bun, "executor": "executor.ts" }).to_string(),
+            serde_json::json!({ "bun": bun, "executor": executor, "extra": true }).to_string(),
+            "{not-json".to_owned(),
+            " ".repeat(HOST_CONFIG_LIMIT as usize + 1),
+        ] {
+            std::fs::write(&path, body).unwrap();
+            assert!(matches!(
+                read_host_config(&path),
+                Err(IoError::InvalidConfiguration)
+            ));
+        }
     }
 
     #[cfg(unix)]

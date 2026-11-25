@@ -21,6 +21,13 @@ pub struct Status {
     /// until one of them is updated.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compatible: Option<bool>,
+    /// False when the host's configured executor runtime cannot start. Omitted when healthy so
+    /// older clients receive the unchanged Status shape.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor_ready: Option<bool>,
+    /// Fixed privacy-safe failure class when `executor_ready` is false; never a path or stderr.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor_error: Option<String>,
 }
 
 pub use crate::Build;
@@ -91,5 +98,46 @@ impl ScriptFailure {
             Self::BrowserDisconnected => "browser_disconnected",
             Self::Aborted => "aborted",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn healthy_status_omits_executor_fields_and_unhealthy_status_serializes_them() {
+        let healthy = Status {
+            enabled: true,
+            observation: Some("full".into()),
+            browser: "Chrome/159.0.0.0".into(),
+            extension: "0.2.11".into(),
+            sessions: 0,
+            host: Some(Build {
+                version: "0.2.11".into(),
+                commit: "0000000".into(),
+            }),
+            compatible: None,
+            executor_ready: None,
+            executor_error: None,
+        };
+        let encoded = serde_json::to_value(&healthy).unwrap();
+        assert!(encoded.get("executor_ready").is_none());
+        assert!(encoded.get("executor_error").is_none());
+        let decoded: Status = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.executor_ready, None);
+        assert_eq!(decoded.executor_error, None);
+
+        let broken = Status {
+            executor_ready: Some(false),
+            executor_error: Some("bun_missing".into()),
+            ..healthy
+        };
+        let encoded = serde_json::to_value(&broken).unwrap();
+        assert_eq!(encoded["executor_ready"], false);
+        assert_eq!(encoded["executor_error"], "bun_missing");
+        let decoded: Status = serde_json::from_value(encoded).unwrap();
+        assert_eq!(decoded.executor_ready, Some(false));
+        assert_eq!(decoded.executor_error.as_deref(), Some("bun_missing"));
     }
 }

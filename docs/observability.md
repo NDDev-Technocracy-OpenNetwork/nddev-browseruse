@@ -52,7 +52,10 @@ host -> explicit bounded metadata sink (Standard and Full) -> local stderr
   earlier session did.
 - **Metadata diagnostics.** The executable explicitly installs a bounded local stderr writer.
   It accepts named events, outcomes, error classes, counts and durations, without URL or
-  page-content fields. Off invalidates queued records; changing back to Full does not replay
+  page-content fields. Executor runtime failures emit `browser.executor.failed` with fixed error
+  classes (`bun_missing`, `bun_not_executable`, `executor_missing`, `config_invalid`,
+  `spawn_failed`, `start_timeout`, `exited_early`, `invalid_ready`, `exited`), never filesystem
+  paths or stderr. Off invalidates queued records; changing back to Full does not replay
   records from the earlier policy. Importing the Rust library initializes no subscriber.
   An embedding application owns any separately configured exporter.
 - **Agents** read the journal with `nddev-browseruse activity`. It filters by session, execution,

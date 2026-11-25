@@ -7,7 +7,6 @@
 //! its session and runs no code until it reports ready; a start that outlasts
 //! one execution's deadline goes on for the next, within its own limit.
 
-use super::Config;
 use crate::{
     protocol::{OUTPUT_LIMIT, Refusal},
     view::ScriptFailure,
@@ -30,6 +29,68 @@ const READY_LIMIT: usize = 64;
 /// How long a start may take, however many executions wait for it.
 const START: Duration = Duration::from_secs(60);
 
+/// Fixed, privacy-safe executor runtime failure classes. Paths and stderr never appear here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RuntimeError {
+    BunMissing,
+    BunNotExecutable,
+    ExecutorMissing,
+    ConfigInvalid,
+    SpawnFailed,
+    StartTimeout,
+    ExitedEarly,
+    InvalidReady,
+    Exited,
+}
+
+impl RuntimeError {
+    pub(super) fn code(self) -> &'static str {
+        match self {
+            Self::BunMissing => "bun_missing",
+            Self::BunNotExecutable => "bun_not_executable",
+            Self::ExecutorMissing => "executor_missing",
+            Self::ConfigInvalid => "config_invalid",
+            Self::SpawnFailed => "spawn_failed",
+            Self::StartTimeout => "start_timeout",
+            Self::ExitedEarly => "exited_early",
+            Self::InvalidReady => "invalid_ready",
+            Self::Exited => "exited",
+        }
+    }
+}
+
+pub(super) fn report_failure(error: RuntimeError) {
+    tracing::warn!(
+        event.name = "browser.executor.failed",
+        outcome = "error",
+        error.type = error.code()
+    );
+}
+
+/// Checks that the configured Bun runtime and executor script exist and can be invoked.
+pub(super) fn check_runtime(bun: &Path, executor: &Path) -> Result<(), RuntimeError> {
+    if !bun.is_absolute() || !executor.is_absolute() {
+        return Err(RuntimeError::ConfigInvalid);
+    }
+    let bun_metadata = std::fs::metadata(bun).map_err(|_| RuntimeError::BunMissing)?;
+    if !bun_metadata.is_file() {
+        return Err(RuntimeError::BunMissing);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if bun_metadata.permissions().mode() & 0o111 == 0 {
+            return Err(RuntimeError::BunNotExecutable);
+        }
+    }
+    let executor_metadata =
+        std::fs::metadata(executor).map_err(|_| RuntimeError::ExecutorMissing)?;
+    if !executor_metadata.is_file() {
+        return Err(RuntimeError::ExecutorMissing);
+    }
+    Ok(())
+}
+
 pub(crate) struct Executor {
     child: Child,
     input: ChildStdin,
@@ -44,7 +105,13 @@ pub(crate) struct Executor {
 enum Start {
     Starting(Instant),
     Ready,
-    Failed,
+    Failed { was_ready: bool },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum StartError {
+    Timeout,
+    Failed(RuntimeError),
 }
 
 #[derive(Deserialize)]
@@ -66,13 +133,14 @@ struct Completed {
 impl Executor {
     /// Starts the process without waiting for it to get ready.
     pub(super) fn start(
-        config: &Config,
+        bun: &Path,
+        executor: &Path,
         endpoint: &str,
         artifacts: &Path,
-    ) -> Result<Self, Refusal> {
-        let mut command = Command::new(&config.bun);
+    ) -> Result<Self, RuntimeError> {
+        let mut command = Command::new(bun);
         command
-            .arg(&config.executor)
+            .arg(executor)
             .arg(endpoint)
             .arg(artifacts)
             .env_clear()
@@ -93,9 +161,13 @@ impl Executor {
                 command.env(name, value);
             }
         }
-        let mut child = command.spawn().map_err(|_| Refusal::ExecutorUnavailable)?;
-        let input = child.stdin.take().ok_or(Refusal::ExecutorUnavailable)?;
-        let output = BufReader::new(child.stdout.take().ok_or(Refusal::ExecutorUnavailable)?);
+        let mut child = command.spawn().map_err(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => RuntimeError::BunMissing,
+            std::io::ErrorKind::PermissionDenied => RuntimeError::BunNotExecutable,
+            _ => RuntimeError::SpawnFailed,
+        })?;
+        let input = child.stdin.take().ok_or(RuntimeError::SpawnFailed)?;
+        let output = BufReader::new(child.stdout.take().ok_or(RuntimeError::SpawnFailed)?);
         Ok(Self {
             child,
             input,
@@ -110,31 +182,65 @@ impl Executor {
     /// the start going; one that reaches the start's own limit makes the executor unavailable.
     pub(super) async fn ready(&mut self, deadline: Instant) -> Result<(), Refusal> {
         let limit = match self.start {
-            Start::Ready => return Ok(()),
-            Start::Failed => return Err(Refusal::ExecutorUnavailable),
+            Start::Ready => {
+                if self.alive() {
+                    return Ok(());
+                }
+                self.start = Start::Failed { was_ready: true };
+                report_failure(RuntimeError::Exited);
+                return Err(Refusal::ExecutorUnavailable);
+            }
+            Start::Failed { .. } => return Err(Refusal::ExecutorUnavailable),
             Start::Starting(started) => started + START,
         };
         let read = ready_line(&mut self.output, &mut self.line);
         let result = started(read, deadline, limit).await;
         self.settle(&result);
-        result
+        match result {
+            Ok(()) => Ok(()),
+            Err(StartError::Timeout) => Err(Refusal::Timeout),
+            Err(StartError::Failed(_)) => Err(Refusal::ExecutorUnavailable),
+        }
     }
 
-    /// Whether the process has reported ready, reading only what it has already written.
+    /// Whether the process has reported ready and is still running, reading only what it has
+    /// already written.
     pub(super) fn is_ready(&mut self) -> bool {
-        if let Start::Starting(_) = self.start
-            && let Some(result) = ready_line(&mut self.output, &mut self.line).now_or_never()
-        {
-            self.settle(&result);
+        self.poll_starting();
+        if matches!(self.start, Start::Ready) && !self.alive() {
+            self.start = Start::Failed { was_ready: true };
+            report_failure(RuntimeError::Exited);
         }
         matches!(self.start, Start::Ready)
     }
 
-    fn settle(&mut self, result: &Result<(), Refusal>) {
+    /// Whether this process failed before ever reporting ready, so no script state existed.
+    pub(super) fn failed_before_ready(&mut self) -> bool {
+        self.poll_starting();
+        matches!(self.start, Start::Failed { was_ready: false })
+    }
+
+    fn poll_starting(&mut self) {
+        if let Start::Starting(_) = self.start
+            && let Some(result) = ready_line(&mut self.output, &mut self.line).now_or_never()
+        {
+            let result = result.map_err(StartError::Failed);
+            self.settle(&result);
+        }
+    }
+
+    fn alive(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
+    }
+
+    fn settle(&mut self, result: &Result<(), StartError>) {
         match result {
             Ok(()) => self.start = Start::Ready,
-            Err(Refusal::Timeout) => return,
-            Err(_) => self.start = Start::Failed,
+            Err(StartError::Timeout) => return,
+            Err(StartError::Failed(error)) => {
+                self.start = Start::Failed { was_ready: false };
+                report_failure(*error);
+            }
         }
         self.line = Vec::new();
     }
@@ -179,6 +285,19 @@ impl Executor {
         if !matches!(self.start, Start::Ready) {
             return Err(Refusal::ExecutorUnavailable);
         }
+        let result = self.run_ready(code, deadline).await;
+        if result == Err(Refusal::ExecutorUnavailable) {
+            self.start = Start::Failed { was_ready: true };
+            report_failure(RuntimeError::Exited);
+        }
+        result
+    }
+
+    async fn run_ready(
+        &mut self,
+        code: &str,
+        deadline: Instant,
+    ) -> Result<(Option<ScriptFailure>, String, bool), Refusal> {
         self.next += 1;
         // The executor ends Playwright's own waits before this deadline, so a stuck action fails
         // with Playwright's reason instead of the execution's timeout.
@@ -299,6 +418,35 @@ pub(super) async fn owned_test_child() -> (Executor, u32) {
     )
 }
 
+#[cfg(all(test, target_os = "linux"))]
+pub(super) async fn owned_exiting_test_child() -> Executor {
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "host::executor::tests::owned_child_exits_before_ready",
+        ])
+        .env_clear()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let input = child.stdin.take().unwrap();
+    let output = BufReader::new(child.stdout.take().unwrap());
+    let mut executor = Executor {
+        child,
+        input,
+        output,
+        next: 0,
+        start: Start::Starting(Instant::now()),
+        line: Vec::new(),
+    };
+    let _ = executor.ready(Instant::now() + super::CONTROL_IO).await;
+    executor
+}
+
 /// How long an executor has to confirm that it aborted a script past its deadline.
 const ABORT_GRACE: Duration = Duration::from_secs(2);
 
@@ -313,14 +461,15 @@ async fn within<T>(
 
 /// Waits for a start until the caller's deadline or the start's limit, whichever comes first.
 async fn started(
-    ready: impl Future<Output = Result<(), Refusal>>,
+    ready: impl Future<Output = Result<(), RuntimeError>>,
     deadline: Instant,
     limit: Instant,
-) -> Result<(), Refusal> {
+) -> Result<(), StartError> {
     match tokio::time::timeout_at(deadline.min(limit).into(), ready).await {
-        Ok(result) => result,
-        Err(_) if limit <= deadline => Err(Refusal::ExecutorUnavailable),
-        Err(_) => Err(Refusal::Timeout),
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(StartError::Failed(error)),
+        Err(_) if limit <= deadline => Err(StartError::Failed(RuntimeError::StartTimeout)),
+        Err(_) => Err(StartError::Timeout),
     }
 }
 
@@ -329,20 +478,22 @@ async fn started(
 async fn ready_line<R: AsyncBufRead + Unpin>(
     reader: &mut R,
     line: &mut Vec<u8>,
-) -> Result<(), Refusal> {
+) -> Result<(), RuntimeError> {
     let room = READY_LIMIT.saturating_sub(line.len()) as u64;
-    reader
+    let read = reader
         .take(room)
         .read_until(b'\n', line)
         .await
-        .map_err(|_| Refusal::ExecutorUnavailable)?;
+        .map_err(|_| RuntimeError::ExitedEarly)?;
     match line.split_last() {
         Some((b'\n', ready)) => match serde_json::from_slice::<Ready>(ready) {
             Ok(Ready { ready: true }) => Ok(()),
-            _ => Err(Refusal::ExecutorUnavailable),
+            _ => Err(RuntimeError::InvalidReady),
         },
-        // The executor exited before it was ready, or wrote more than a ready line.
-        _ => Err(Refusal::ExecutorUnavailable),
+        // EOF before a newline means the executor exited early; hitting READY_LIMIT without one
+        // means it wrote more than a valid ready line.
+        _ if read == 0 || line.len() < READY_LIMIT => Err(RuntimeError::ExitedEarly),
+        _ => Err(RuntimeError::InvalidReady),
     }
 }
 
@@ -376,6 +527,69 @@ mod tests {
         while input.read(&mut bytes).unwrap() != 0 {}
     }
 
+    /// An inert owned child that exits without printing a ready line.
+    #[test]
+    #[ignore]
+    fn owned_child_exits_before_ready() {}
+
+    #[test]
+    fn runtime_precheck_distinguishes_missing_unexecutable_and_invalid_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let bun = std::env::current_exe().unwrap();
+        let executor = root.path().join("executor.ts");
+        std::fs::write(&executor, b"").unwrap();
+
+        assert_eq!(check_runtime(&bun, &executor), Ok(()));
+        assert_eq!(
+            check_runtime(Path::new("bun"), &executor),
+            Err(RuntimeError::ConfigInvalid)
+        );
+        assert_eq!(
+            check_runtime(&bun, Path::new("executor.ts")),
+            Err(RuntimeError::ConfigInvalid)
+        );
+        assert_eq!(
+            check_runtime(&root.path().join("missing-bun"), &executor),
+            Err(RuntimeError::BunMissing)
+        );
+        assert_eq!(
+            check_runtime(&bun, &root.path().join("missing-executor.ts")),
+            Err(RuntimeError::ExecutorMissing)
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let non_exec = root.path().join("non-exec-bun");
+            std::fs::write(&non_exec, b"#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&non_exec, std::fs::Permissions::from_mode(0o600)).unwrap();
+            assert_eq!(
+                check_runtime(&non_exec, &executor),
+                Err(RuntimeError::BunNotExecutable)
+            );
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn ready_child_exit_is_detected_and_distinguished_from_early_start_failure() {
+        let (mut ready, _pid) = owned_test_child().await;
+        assert!(ready.is_ready());
+        assert!(!ready.failed_before_ready());
+        ready.stop().await.unwrap();
+        assert!(!ready.is_ready());
+        assert!(!ready.failed_before_ready());
+        assert_eq!(
+            ready.ready(Instant::now() + super::super::CONTROL_IO).await,
+            Err(Refusal::ExecutorUnavailable)
+        );
+
+        let mut early = owned_exiting_test_child().await;
+        assert!(!early.is_ready());
+        assert!(early.failed_before_ready());
+        early.stop().await.unwrap();
+    }
+
     #[tokio::test]
     async fn lines_are_bounded_and_eof_is_not_success() {
         let mut complete: &[u8] = b"{\"ready\":true}\n";
@@ -402,11 +616,14 @@ mod tests {
     async fn a_start_outlasting_a_deadline_continues_and_its_own_limit_ends_it() {
         let now = Instant::now();
         let later = now + Duration::from_secs(60);
-        let pending = || std::future::pending::<Result<(), Refusal>>();
-        assert_eq!(started(pending(), now, later).await, Err(Refusal::Timeout));
+        let pending = || std::future::pending::<Result<(), RuntimeError>>();
+        assert_eq!(
+            started(pending(), now, later).await,
+            Err(StartError::Timeout)
+        );
         assert_eq!(
             started(pending(), later, now).await,
-            Err(Refusal::ExecutorUnavailable)
+            Err(StartError::Failed(RuntimeError::StartTimeout))
         );
     }
 
@@ -417,18 +634,24 @@ mod tests {
         let mut line = Vec::new();
         writer.write_all(b"{\"ready\"").await.unwrap();
         let soon = Instant::now() + Duration::from_millis(50);
-        let interrupted = within(soon, ready_line(&mut reader, &mut line)).await;
-        assert_eq!(interrupted, Err(Refusal::Timeout));
+        let interrupted = tokio::time::timeout_at(soon.into(), ready_line(&mut reader, &mut line))
+            .await
+            .unwrap_or(Err(RuntimeError::StartTimeout));
+        assert_eq!(interrupted, Err(RuntimeError::StartTimeout));
         writer.write_all(b":true}\n").await.unwrap();
         assert_eq!(ready_line(&mut reader, &mut line).await, Ok(()));
 
-        for written in [&b"{\"ready\":false}\n"[..], b"", &[b'x'; 80]] {
+        for (written, expected) in [
+            (&b"{\"ready\":false}\n"[..], RuntimeError::InvalidReady),
+            (b"", RuntimeError::ExitedEarly),
+            (&[b'x'; 80], RuntimeError::InvalidReady),
+        ] {
             let (mut writer, reader) = tokio::io::duplex(128);
             writer.write_all(written).await.unwrap();
             drop(writer);
             let mut line = Vec::new();
             let result = ready_line(&mut BufReader::new(reader), &mut line).await;
-            assert_eq!(result, Err(Refusal::ExecutorUnavailable));
+            assert_eq!(result, Err(expected));
         }
     }
 }

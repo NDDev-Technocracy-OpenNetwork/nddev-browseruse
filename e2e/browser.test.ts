@@ -3636,6 +3636,108 @@ test.skipIf(windows)("without the host the popup links to its setup", async () =
   await connected.close();
 });
 
+test("a killed executor reports not ready, signals state loss once, and recovers on the next run", async () => {
+  const project = "executor-crash";
+  await opened(project);
+  try {
+    const setup = await run(
+      project,
+      `state.page = await context.newPage(); await state.page.goto("${origin}/"); state.marker = "kept"; return "ready"`,
+      "--timeout",
+      "20000",
+    );
+    expect(setup.code).toBe(0);
+    expect(setup.body.value).toBe("ready");
+    expect((await cli("session", "list")).body).toContainEqual({
+      project,
+      tabs: 1,
+      executor: true,
+    });
+    const sessionArea = area(project);
+    const pids = processes(sessionArea);
+    expect(pids.length).toBeGreaterThanOrEqual(1);
+    for (const pid of pids) process.kill(pid, "SIGKILL");
+    await expect.poll(() => processes(sessionArea), { timeout: 10_000 }).toEqual([]);
+    // `session list` detects the dead child process instead of reporting a stale ready state.
+    expect((await cli("session", "list")).body).toContainEqual({
+      project,
+      tabs: 1,
+      executor: false,
+    });
+    // The first run after a ready executor dies reports `executor_unavailable` so the caller knows
+    // JS `state` is gone, then clears the dead child for the next run.
+    const lost = await run(project, "state.marker ?? 'reset'");
+    expect(lost.code).toBe(2);
+    expect(lost.body.error).toBe("executor_unavailable");
+    // The following run refreshes the tab group and starts a fresh executor on the same tab.
+    const recovered = await run(
+      project,
+      "[state.marker === undefined, context.pages().map((page) => page.url()).join(',')].join(' ')",
+      "--timeout",
+      "20000",
+    );
+    expect(recovered.code).toBe(0);
+    expect(recovered.body.value).toBe(`true ${origin}/`);
+    expect((await cli("session", "list")).body).toContainEqual({
+      project,
+      tabs: 1,
+      executor: true,
+    });
+  } finally {
+    await cli("session", "close", project, "--close-tabs");
+  }
+}, 60_000);
+
+test("a broken host.json runtime is reported in status and recovers live when repaired", async () => {
+  const hostConfigPath = join(configuration, "host.json");
+  const original = readFileSync(hostConfigPath, "utf8");
+  const parsed = JSON.parse(original) as { bun: string; executor: string };
+  try {
+    writeFileSync(
+      hostConfigPath,
+      JSON.stringify({ bun: join(root, "missing-bun-sentinel"), executor: parsed.executor }),
+    );
+    const missing = await cli("status");
+    expect(missing.code).toBe(0);
+    expect(missing.body.enabled).toBe(true);
+    expect(missing.body.executor_ready).toBe(false);
+    expect(missing.body.executor_error).toBe("bun_missing");
+    expect((await cli("capabilities")).body.browser_ready).toBe(false);
+    const refused = await cli("session", "new", "broken-runtime");
+    expect(refused.code).toBe(2);
+    expect(refused.body.error).toBe("executor_unavailable");
+    expect((await cli("session", "list")).body).not.toContainEqual(
+      expect.objectContaining({ project: "broken-runtime" }),
+    );
+
+    // Malformed host.json fails closed and does not ask the host to restart.
+    writeFileSync(hostConfigPath, "{not-valid-json");
+    const malformed = await cli("status");
+    expect(malformed.code).toBe(0);
+    expect(malformed.body.executor_ready).toBe(false);
+    expect(malformed.body.executor_error).toBe("config_invalid");
+    expect((await cli("capabilities")).body.browser_ready).toBe(false);
+    expect((await cli("update")).body).toEqual({ reload: false, restart: false });
+
+    // Restoring host.json recovers health and session execution live without restarting Chrome.
+    writeFileSync(hostConfigPath, original);
+    const healthy = await cli("status");
+    expect(healthy.code).toBe(0);
+    expect(healthy.body.enabled).toBe(true);
+    expect(healthy.body.executor_ready).toBeUndefined();
+    expect(healthy.body.executor_error).toBeUndefined();
+    expect((await cli("capabilities")).body.browser_ready).toBe(true);
+    await opened("recovered-runtime");
+    const executed = await run("recovered-runtime", "1 + 1");
+    expect(executed.code).toBe(0);
+    expect(executed.body.value).toBe("2");
+  } finally {
+    writeFileSync(hostConfigPath, original);
+    await cli("session", "close", "recovered-runtime", "--close-tabs");
+    await cli("session", "close", "broken-runtime", "--close-tabs");
+  }
+}, 60_000);
+
 // An install that changes only the host replaces its binary under the same path. Once no session
 // needs the running host, `update` ends it, and the extension starts the new binary when it
 // reconnects. Windows cannot rename a file over a running executable.
@@ -3703,6 +3805,7 @@ test("host telemetry is schema-valid and carries no page data", () => {
     // detach that was restored, and the session of a replaced executor was refreshed.
     "browser.target.reattached",
     "browser.session.refreshed",
+    "browser.executor.failed",
   ]) {
     expect(names).toContain(name);
   }
@@ -3720,6 +3823,7 @@ test("host telemetry is schema-valid and carries no page data", () => {
     "/owner",
     "foreign-extension",
     "chrome-extension://",
+    "missing-bun-sentinel",
   ]) {
     expect(text).not.toContain(secret);
   }
